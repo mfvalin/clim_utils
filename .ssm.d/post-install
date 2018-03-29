@@ -1,0 +1,11 @@
+domainHome=$1
+packageHome=$2
+profileDirPath=${packageHome}/etc/profile.d
+packageName=${packageHome##*/}
+packageVersion=${packageName%_*}
+packageVersion=${packageVersion#*_}
+profilePath=${profileDirPath}/${packageName}.sh
+mkdir -p ${profileDirPath}
+echo "export CLIM_UTILS_VERSION=${packageVersion}" > ${profilePath}
+chmod 644 ${profilePath}
+

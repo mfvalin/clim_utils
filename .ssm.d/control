@@ -1,0 +1,6 @@
+Package: clim_utils
+Version: 1.0
+Platform: 
+Maintainer: armnssm
+BuildInfo:
+Description: 'set of GEM climate utilities'
