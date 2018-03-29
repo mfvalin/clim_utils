@@ -1,3 +1,4 @@
+#!/bin/bash
 domainHome=$1
 packageHome=$2
 profileDirPath=${packageHome}/etc/profile.d
