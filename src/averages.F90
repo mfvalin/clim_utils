@@ -565,7 +565,11 @@
 
     if(strict)  verbose = max(2 , verbose)          ! ERROR + WARNING messages at least
 
-    allocate(ptab(0:MAX_PAGES-1))   ! allocate and initialize page table
+    allocate(ptab(0:MAX_PAGES-1),STAT=status)   ! allocate and initialize page table
+    if(status .ne. 0) then
+      print *,'FATAL: cannot allocate page table'
+      call f_exit(1)
+    endif
     do i = 0 , MAX_PAGES-1          ! nullify all page pointers
       nullify(ptab(i)%p)
     enddo
@@ -835,7 +839,8 @@
         print 100,"DEBUG: ",p%nsamples,p%nomvar,p%typvar,p%etiket,p%grtyp,p%ip1,associated(p%stats),p%ni,p%nj
 100     format(A,I5,A5,A3,A13,A2,I10,L2,2I5,2I8)
       endif
-      allocate(z(p%ni,p%nj))   ! allocate space for averages
+      allocate(z(p%ni,p%nj),STAT=status)   ! allocate space for averages
+      if(status .ne. 0) return
       ov_sample = 1.0
       ov_sample = ov_sample / p%nsamples
       do jj = 1 , p%nj
