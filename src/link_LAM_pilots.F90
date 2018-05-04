@@ -105,7 +105,7 @@ program print_date_range
       endif
     else if(option(1:13) == '--start_anal=' ) then       ! initial analysis (only necessary if start_sym == start_date)
       anal = option(14:4096)
-    else if(option(1:13) == '--status=' ) then       ! initial analysis (only necessary if start_sym == start_date)
+    else if(option(1:9) == '--status=' ) then       ! initial analysis (only necessary if start_sym == start_date)
       statusfile = option(10:4096)
     else if(option(1:13) == '--pilot_data=' ) then       ! directory for boundary conditions
       nest_rept = option(14:4096)
