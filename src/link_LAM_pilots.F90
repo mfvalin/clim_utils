@@ -125,12 +125,12 @@ program print_date_range
       goto 777
     else 
       print *,"ERROR: unrecognized option '"//trim(option)//"'"
-      if( trim(statusfile) .ne. '/dev/null' ) set_status(statusfile,'status="ABORT"')
+      if( trim(statusfile) .ne. '/dev/null' ) call set_status(statusfile,'status="ABORT"')
       goto 777
     endif
     cur_arg = cur_arg + 1
   enddo
-  if( trim(statusfile) .ne. '/dev/null' ) set_status(statusfile,'status="ABORT"')
+  if( trim(statusfile) .ne. '/dev/null' ) call set_status(statusfile,'status="ABORT"')
   use_anal = (printable3(1) == printable1(1)) .and. (printable3(2) == printable1(2))
   if(printable1(1) == -1 .or. printable2(1) == -1) then
     write(0,*),'ERROR: missing start/end date(s)'
