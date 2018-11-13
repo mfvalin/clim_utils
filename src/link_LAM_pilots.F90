@@ -18,7 +18,7 @@ program print_date_range
   logical :: use_anal, first_in_month
   integer :: cur_arg, nargs, arg_len, ntimes
   integer :: month_is_file = 0
-  character(len=128) :: version = 'version 1.0.7 2018/03/04'
+  character(len=128) :: version = 'version 1.0.8 2018/11/13'
   integer, parameter :: MAXGLOB=2
   character(len=4096), dimension(MAXGLOB) :: globs
   integer :: nglob, arg2_nc
@@ -225,7 +225,8 @@ program print_date_range
           enddo
           write(0,*),'INFO: using boundary files pattern '//trim(oldmonth)//'/'//trim(set_pattern)//arg2(1:6)//template(7:arg2_nc)
           if(arg2_nc > 14) then  ! OOPS
-            write(0,*),'ERROR: cannot determine file name pattern for ' // trim(month_name)
+            write(0,*),'ERROR: no file was found matching ' // trim(oldpath)
+            write(0,*),'       date = '//arg2(1:4)//'/'//arg2(5:6)//'/'//arg2(7:8)//'-'//arg2(9:10)//':'//arg2(11:12)//':'//arg2(13:14)
             stop
           endif
         endif
@@ -280,7 +281,7 @@ program print_date_range
   write(0,*),'       year=...   : (optional) argument ,  calendar to be used (gregorian by default)'
   write(0,*),'       arguments between [] are optional'
   write(0,*),'       one of nhours/nseconds is necessary'
-  write(0,*),'       for date parameters, the trailing 0s in the HHMMSS part can be omitted'
+  write(0,*),'       for date parameters, the trailing 0s in the HHMMSS part may be omitted'
   call f_exit(1)
   stop
 end program
