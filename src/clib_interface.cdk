@@ -85,7 +85,12 @@
 
 #define CLIB_OK    1
 #define CLIB_ERROR -1
+
+#if defined(__GFORTRAN__)
+#define CLIB_F77NAME(a) a/**/_schhide
+#else
 #define CLIB_F77NAME(a) a##_schhide
+#endif
 
 #endif
 
