@@ -15,10 +15,10 @@ program print_date_range
   character(C_CHAR), dimension(4096) :: oldp, newp, dirp
   character(len=4096) :: nest_rept, set_name, anal, statusfile
   integer(C_INT) :: mode
-  logical :: use_anal, first_in_month
+  logical :: use_anal, first_in_month, sub_daily
   integer :: cur_arg, nargs, arg_len, ntimes
   integer :: month_is_file = 0
-  character(len=128) :: version = 'version 1.0.8 2018/11/13'
+  character(len=128) :: version = 'version 1.0.9 2018/11/20'
   integer, parameter :: MAXGLOB=2
   character(len=4096), dimension(MAXGLOB) :: globs
   integer :: nglob, arg2_nc
@@ -71,6 +71,7 @@ program print_date_range
   nest_rept = ''
   arg2_nc = 8
   first_in_month = .true.
+  sub_daily = .false.
   template = 'YYYYMM????????'
 
   do while(cur_arg <= nargs)      ! process command line options
@@ -103,6 +104,8 @@ program print_date_range
       else
         read(sym,12,err=777)printable3(1),printable3(2)  ! start of simulation in YYYYMMDD format
       endif
+    else if(option(1:11) == '--sub_daily' ) then        ! sub daily time resolution for driving data files
+      sub_daily = .true.
     else if(option(1:13) == '--start_anal=' ) then       ! initial analysis (only necessary if start_sym == start_date)
       anal = option(14:4096)
     else if(option(1:9) == '--status=' ) then       ! initial analysis (only necessary if start_sym == start_date)
@@ -172,7 +175,7 @@ program print_date_range
   do while(diff >= 0)                                 ! end date - next date
     status = newdate(stamp1,p1,p2,-3)                 ! convert to printable
     p3 = p1                                           ! YYYYMMDD
-    if(p2 == 0 .and. (.not. use_anal)) then           ! hhmmss = 0, use previous day, except if use_anal is true
+    if(p2 == 0 .and. (.not. use_anal) .and. (.not. sub_daily)) then   ! hhmmss = 0, use previous day, except if use_anal or sub_daily
       call incdatr(stamp3,stamp1,-24.0_8)
       status = newdate(stamp3,p3,p4,-3)
     endif
@@ -216,12 +219,18 @@ program print_date_range
       else    ! same month, another day
         if(first_in_month) then  ! see if name ends in YYYYMMDDhh, if so use 10 chars from arg2
           arg2_nc = 8
+          if(sub_daily) arg2_nc = 10    ! sub_daily mode, hh MUST be present
           do while(arg2_nc <= 14)
             oldpath = trim(month_name) // '/' // trim(set_pattern) // arg2(1:arg2_nc)   ! look for 'pattern'YYYYMMDD[hh][mm][ss] file name
 !              write(0,*),'DEBUG: trying ' // trim(oldpath)
             status = clib_glob(globs,nglob,trim(oldpath),MAXGLOB)            ! find file name match(es)
             if(status == CLIB_OK .and. nglob == 1) exit                      ! found unique match , exit loop
             arg2_nc = arg2_nc + 2                                            ! try longer match
+            if( .not. sub_daily) then
+              write(0,*),'ERROR: --sub_daily flag is absent and no daily file has been found'
+              write(0,*),'      '//trim(oldpath)
+              stop
+            endif
           enddo
           write(0,*),'INFO: using boundary files pattern '//trim(oldmonth)//'/'//trim(set_pattern)//arg2(1:6)//template(7:arg2_nc)
           if(arg2_nc > 14) then  ! OOPS
@@ -265,7 +274,7 @@ program print_date_range
 12  format(I8,I6)
 777 continue
   write(0,*),'USAGE: '//trim(name)//' [-h|--help] --start_date= --end_date= --nhours= --nseconds= [--start_sym=] [--status=statusfile] \'
-  write(0,*),'        [--version] [--start_anal=] --pilot_data= --set_name= [--set_pattern] [--year=gregorian|360_day|365_day]'
+  write(0,*),'        [--version] [--sub-daily] [--start_anal=] --pilot_data= --set_name= [--set_pattern] [--year=gregorian|360_day|365_day]'
   write(0,*),'       '//version
   write(0,*),''
   write(0,*),'       statusfile : path to status file that will contain(status="SUCCESS" or status="ABORT")'
@@ -278,9 +287,11 @@ program print_date_range
   write(0,*),'       pilot_data : directory containing the boundary condition files'
   write(0,*),'       set_name   : dataset/experiment name'
   write(0,*),'       set_pattern: disambiguation pattern for file "globbing"'
-  write(0,*),'       year=...   : (optional) argument ,  calendar to be used (gregorian by default)'
+  write(0,*),'       --year=... : (optional) argument ,  calendar to be used (gregorian by default)'
+  write(0,*),'       --sub_daily: driving data files contain less than a day of data (hh/hhmm/hhmmss in file names)'
+  write(0,*),'       --version  : print version and quit'
   write(0,*),'       arguments between [] are optional'
-  write(0,*),'       one of nhours/nseconds is necessary'
+  write(0,*),'       only one of --nhours/--nseconds is necessary'
   write(0,*),'       for date parameters, the trailing 0s in the HHMMSS part may be omitted'
   call f_exit(1)
   stop
