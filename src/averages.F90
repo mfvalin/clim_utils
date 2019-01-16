@@ -52,6 +52,7 @@
     logical, save :: weight_abs = .false.  ! use a specific constant weight
     integer, save :: time_weight = 24      ! weight is in days, set to 1 for weight in hours
     logical, save :: strict = .false.      ! non strict mode by default
+    logical, save :: ensemble = .false.    ! ensemble mode
     logical, save :: select_etiket = .false. ! etiket 1s a significant item if .true.
 
     character(len=4), dimension(1024), save :: specials
@@ -256,7 +257,7 @@
         sample = 3600*ABS(r2 - r3)           ! sample interval in seconds
         if(verbose > 4) print *,'DEBUG: sample =',sample
       endif
-      if(is_special) then   !  special names
+      if(is_special .or. ensemble) then   !  special names or ensemble mode
         date_lo = 0
         date_hi = 0
       else                  ! regular data / averages
@@ -291,7 +292,7 @@
         if((p%ig1 .ne. ig1) .or. (p%ig2 .ne. ig2) .or. (p%ig3 .ne. ig3) .or. (p%ig4 .ne. ig4) ) cycle  ! not same grid
         if(trim(p%etiket) .ne. trim(etiket) .and. select_etiket) cycle            ! not same experiment
         if((p%dateo .ne. dateo) .and. check_dateo) cycle      ! dateo verification is optional
-        if(is_special)then
+        if(is_special .or. ensemble)then                      ! ensemble mode : records must have same ip1/ip2/ip3
           if(p%ip2 .ne. ip2 .or. p%ip3 .ne. ip3) cycle        ! special records must have same ip1/ip2/ip3
         endif
         if(p%typvar(2:2) .eq. AVG_MARKER) p%typvar = trim(typvar)  ! force typvar into p%typvar if average
@@ -354,7 +355,7 @@
     character(len=*) :: name
     print *,'USAGE: '//trim(name)//' [-h|--help] [-version] [-newtags] [-strict] [-novar] [-stddev] [-tag nomvar] \'
     print *,'           [-npas0] [-dateo] [-mean mean_out] [-var var_out] [-weight ip3|time|hours|days|nnn] \'
-    print *,'           [-etiket] [-status path/to/status/file] [-test] [-q[q]] [-v[v][v]] [--|-f] \'
+    print *,'           [-ensemble] [-etiket] [-status path/to/status/file] [-test] [-q[q]] [-v[v][v]] [--|-f] \'
     print *,'           [mean_out] [var_out] in_1 ... in_n'
     print *,'        var_out  MUST NOT be present if -novar or -var is used'
     print *,'        mean_out MUST NOT be present if -mean is used'
@@ -363,6 +364,7 @@
     print *,"        default special tag names = '>>  ', '^^  ', '!!  ', 'HY  '"
     print *,'        the -tag option may be used than once to add to this list'
     print *,'        etiket is ignored except if -etiket used on the command line'
+    print *,'        ensemble activates the ensemble mode, averages/stds across files'
     print *,'example :'
     print *,"  "//trim(name)//" -status stat.dot -vv -mean mean.fst -var var.fst -tag HY -tag '>>' my_dir/dm*"
     return
@@ -442,6 +444,9 @@
 
       else if( option == '-etiket' ) then
         select_etiket = .true.
+
+      else if( option == '-ensemble' ) then ! ensemble mode flag (normally false)
+        ensemble = .true.
 
       else if( option == '-weight' ) then     ! -mean file_for_averages
         if(curarg > arg_count) then
