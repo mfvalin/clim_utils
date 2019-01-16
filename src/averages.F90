@@ -355,7 +355,7 @@
     character(len=*) :: name
     print *,'USAGE: '//trim(name)//' [-h|--help] [-version] [-newtags] [-strict] [-novar] [-stddev] [-tag nomvar] \'
     print *,'           [-npas0] [-dateo] [-mean mean_out] [-var var_out] [-weight ip3|time|hours|days|nnn] \'
-    print *,'           [-ensemble] [-etiket] [-status path/to/status/file] [-test] [-q[q]] [-v[v][v]] [--|-f] \'
+    print *,'           [-ens] [-etiket] [-status path/to/status/file] [-test] [-q[q]] [-v[v][v]] [--|-f] \'
     print *,'           [mean_out] [var_out] in_1 ... in_n'
     print *,'        var_out  MUST NOT be present if -novar or -var is used'
     print *,'        mean_out MUST NOT be present if -mean is used'
@@ -364,7 +364,7 @@
     print *,"        default special tag names = '>>  ', '^^  ', '!!  ', 'HY  '"
     print *,'        the -tag option may be used than once to add to this list'
     print *,'        etiket is ignored except if -etiket used on the command line'
-    print *,'        ensemble activates the ensemble mode, averages/stds across files'
+    print *,'        -ens activates the ensemble mode, averages/stds across files'
     print *,'example :'
     print *,"  "//trim(name)//" -status stat.dot -vv -mean mean.fst -var var.fst -tag HY -tag '>>' my_dir/dm*"
     return
@@ -445,7 +445,7 @@
       else if( option == '-etiket' ) then
         select_etiket = .true.
 
-      else if( option == '-ensemble' ) then ! ensemble mode flag (normally false)
+      else if( option == '-ens' ) then ! ensemble mode flag (normally false)
         ensemble = .true.
 
       else if( option == '-weight' ) then     ! -mean file_for_averages
