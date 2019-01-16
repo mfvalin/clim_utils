@@ -1,4 +1,4 @@
-#define VERSION '1.0_rc19 2018/04/22'
+#define VERSION '1.0_rc20 2019/01/15'
 #define AVG_MARKER '/'
 #define VAR_MARKER '%'
   module averages_common   ! tables and table management routines
@@ -900,7 +900,7 @@
       if(variance) then            ! use IEEE 64 bit format for variances
         call fst_data_length(8)    ! 64 bit format
         p%typvar(2:2) = VAR_MARKER
-        call fstecr(p%stats(1,1,2),p%stats(1,1,2),-64,p%typvar, &
+        call fstecr(p%stats(1,1,2),p%stats(1,1,2),-64,fstdvar, &
                     new_dateo,deet,npas,p%ni,p%nj,1,ip1,ip2,ip3,vartag,p%nomvar,p%etiket, &
                     p%grtyp,p%ig1,p%ig2,p%ig3,p%ig4,5,.false.)
       endif
