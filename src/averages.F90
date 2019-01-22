@@ -1,4 +1,4 @@
-#define VERSION '1.0_rc20 2019/01/15'
+#define VERSION '1.0_rc21 2019/01/22'
 #define AVG_MARKER '/'
 #define VAR_MARKER '%'
   module averages_common   ! tables and table management routines
