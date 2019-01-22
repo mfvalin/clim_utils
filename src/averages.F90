@@ -875,6 +875,7 @@
       call datmgp2(date_array)
       ip2 = ip2 + date_array(5)             ! zulu hour at start of period
       ip2 = ip2 + 24 * (date_array(3)-1)    ! force back to first day of month
+      if(ensemble) ip2 = p%ip2
       ip3 = p%nsamples                      ! number of samples
       ip1 = p%ip1
 !       if(verbose > 2) print *,'INFO: ',p%nsamples,' '//p%nomvar//' "samples" every',p%sample/3600.0,' hours'
