@@ -123,6 +123,7 @@ program print_date_range
       anal = val
     else if(trim(key) == '--index=' ) then       ! filename to index (look for P0)
       name_to_index = val
+      indexmode = .true.
     else if(trim(key) == '--status=' ) then       ! initial analysis (only necessary if start_sym == start_date)
       statusfile = val
     else if(trim(key) == '--pilot_data=' ) then       ! directory for boundary conditions
