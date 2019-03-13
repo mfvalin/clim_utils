@@ -13,12 +13,12 @@ program print_date_range
   character(len=4096) :: oldpath, newpath, dirpath, option, oldmonth, month_name
   character(len=1024) :: set_pattern
   character(C_CHAR), dimension(4096) :: oldp, newp, dirp
-  character(len=4096) :: nest_rept, set_name, anal, statusfile
+  character(len=4096) :: nest_rept, set_name, anal, statusfile, name_to_index
   integer(C_INT) :: mode
-  logical :: use_anal, first_in_month, sub_daily
+  logical :: use_anal, first_in_month, sub_daily, indexmode
   integer :: cur_arg, nargs, arg_len, ntimes
   integer :: month_is_file = 0
-  character(len=128) :: version = 'version 1.0.9 2018/11/20'
+  character(len=128) :: version = 'version 1.0.10 2019/03/13'
   integer, parameter :: MAXGLOB=2
   character(len=4096), dimension(MAXGLOB) :: globs
   integer :: nglob, arg2_nc
@@ -72,6 +72,7 @@ program print_date_range
   arg2_nc = 8
   first_in_month = .true.
   sub_daily = .false.
+  indexmode = .false.
   template = 'YYYYMM????????'
 
   do while(cur_arg <= nargs)      ! process command line options
@@ -108,6 +109,8 @@ program print_date_range
       sub_daily = .true.
     else if(option(1:13) == '--start_anal=' ) then       ! initial analysis (only necessary if start_sym == start_date)
       anal = option(14:4096)
+    else if(option(1:13) == '--index=' ) then       ! filename to index (look for P0)
+      name_to_index = option(14:4096)
     else if(option(1:9) == '--status=' ) then       ! initial analysis (only necessary if start_sym == start_date)
       statusfile = option(10:4096)
     else if(option(1:13) == '--pilot_data=' ) then       ! directory for boundary conditions
