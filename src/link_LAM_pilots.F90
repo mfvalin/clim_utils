@@ -9,8 +9,8 @@ program print_date_range
   real *8 :: delta, diff
   integer :: status
   character(len=128) :: date1, date2, interval, name, sym
-  character(len=32) :: arg1, arg2
-  character(len=4096) :: oldpath, newpath, dirpath, option, oldmonth, month_name
+  character(len=32) :: arg1, arg2, key
+  character(len=4096) :: oldpath, newpath, dirpath, option, oldmonth, month_name, val
   character(len=1024) :: set_pattern
   character(C_CHAR), dimension(4096) :: oldp, newp, dirp
   character(len=4096) :: nest_rept, set_name, anal, statusfile, name_to_index
@@ -21,7 +21,7 @@ program print_date_range
   character(len=128) :: version = 'version 1.0.10 2019/03/13'
   integer, parameter :: MAXGLOB=2
   character(len=4096), dimension(MAXGLOB) :: globs
-  integer :: nglob, arg2_nc
+  integer :: nglob, arg2_nc, errors
   character(len=16) :: template
 
   interface
@@ -59,6 +59,7 @@ program print_date_range
   oldmonth = ' '
   set_pattern = '*'  ! default filename pattern for set name "globbing"
 
+  errors = 0
   cur_arg = 1
   nargs = command_argument_count()
   if(nargs == 0) goto 777
@@ -77,94 +78,100 @@ program print_date_range
 
   do while(cur_arg <= nargs)      ! process command line options
     call get_command_argument(cur_arg,option,arg_len,status)
-    if(option(1:13)      == '--start_date=' ) then       ! YYYYMMDD.HHMMSS or YYYYMMDDHHMMSS
-      date1 = trim(option(14:4096))//'000000'
+    call optkey(key,option)
+    call optval(val,option)
+    if(trim(key) == '--start_date=' ) then       ! YYYYMMDD.HHMMSS or YYYYMMDDHHMMSS
+      date1 = trim(val)//'000000'
       if(date1(9:9) == '.') then
-        read(date1,11,err=777)printable1(1),printable1(2)  ! start date in YYYYMMDD format
+        read(date1,11,err=777)printable1(1),printable1(2)  ! start date in YYYYMMDD.HHMMSS format
       else
-        read(date1,12,err=777)printable1(1),printable1(2)  ! start date in YYYYMMDD format
+        read(date1,12,err=777)printable1(1),printable1(2)  ! start date in YYYYMMDDHHMMSS format
       endif
-    else if(option(1:11) == '--end_date=' ) then         ! YYYYMMDD.HHMMSS or YYYYMMDDHHMMSS
-      date2 = trim(option(12:4096))//'000000'
+    else if(trim(key) == '--end_date=' ) then         ! YYYYMMDD.HHMMSS or YYYYMMDDHHMMSS
+      date2 = trim(val)//'000000'
       if(date2(9:9) == '.') then
-        read(date2,11,err=777)printable2(1),printable2(2)  ! end date in YYYYMMDD format
+        read(date2,11,err=777)printable2(1),printable2(2)  ! end date in YYYYMMDD.HHMMSS format
       else
-        read(date2,12,err=777)printable2(1),printable2(2)  ! end date in YYYYMMDD format
+        read(date2,12,err=777)printable2(1),printable2(2)  ! end date in YYYYMMDDHHMMSS format
       endif
-    else if(option(1:9)  == '--nhours=' ) then           ! hours
-      interval = option(10:4096)
+    else if(trim(key)  == '--nhours=' ) then           ! hours
+      interval = val
       read(interval,*,err=777)delta                      ! interval in hours
-    else if(option(1:11) == '--nseconds=' ) then         ! seconds
-      interval = option(12:4096)
+    else if(trim(key) == '--nseconds=' ) then         ! seconds
+      interval = val
       read(interval,*,err=777)delta                      ! interval in seconds
       delta = delta/3600.0                               ! interval in hours
-    else if(option(1:12) == '--start_sym=' ) then        ! YYYYMMDD.HHMMSS or YYYYMMDDHHMMSS
-      sym = trim(option(13:4096))//'000000'
+    else if(trim(key) == '--start_sym=' ) then        ! YYYYMMDD.HHMMSS or YYYYMMDDHHMMSS
+      sym = trim(val)//'000000'
       if(sym(9:9) == '.') then
-        read(sym,11,err=777)printable3(1),printable3(2)  ! start of simulation in YYYYMMDD format
+        read(sym,11,err=777)printable3(1),printable3(2)  ! start of simulation in YYYYMMDD.HHMMSS format
       else
-        read(sym,12,err=777)printable3(1),printable3(2)  ! start of simulation in YYYYMMDD format
+        read(sym,12,err=777)printable3(1),printable3(2)  ! start of simulation in YYYYMMDDHHMMSS format
       endif
-    else if(option(1:11) == '--sub_daily' ) then        ! sub daily time resolution for driving data files
+    else if(trim(key) == '--sub_daily' ) then        ! sub daily time resolution for driving data files
       sub_daily = .true.
-    else if(option(1:13) == '--start_anal=' ) then       ! initial analysis (only necessary if start_sym == start_date)
-      anal = option(14:4096)
-    else if(option(1:13) == '--index=' ) then       ! filename to index (look for P0)
-      name_to_index = option(14:4096)
-    else if(option(1:9) == '--status=' ) then       ! initial analysis (only necessary if start_sym == start_date)
-      statusfile = option(10:4096)
-    else if(option(1:13) == '--pilot_data=' ) then       ! directory for boundary conditions
-      nest_rept = option(14:4096)
-    else if(option(1:11) == '--set_name=' ) then         ! experiment name
-      set_name = option(12:4096)
-    else if(option(1:11) == '--set_pattern=' ) then      ! disambiguation pattern for file "globbing", default is '*'
-      set_pattern = option(15:4096)
-    else if(option(1:7)  == '--year=' ) then             ! calendar option (optional)
+    else if(trim(key) == '--start_anal=' ) then       ! initial analysis (only necessary if start_sym == start_date)
+      anal = val
+    else if(trim(key) == '--index=' ) then       ! filename to index (look for P0)
+      name_to_index = val
+    else if(trim(key) == '--status=' ) then       ! initial analysis (only necessary if start_sym == start_date)
+      statusfile = val
+    else if(trim(key) == '--pilot_data=' ) then       ! directory for boundary conditions
+      nest_rept = val
+    else if(trim(key) == '--set_name=' ) then         ! experiment name
+      set_name = val
+    else if(trim(key) == '--set_pattern=' ) then      ! disambiguation pattern for file "globbing", default is '*'
+      set_pattern = val
+    else if(trim(key)  == '--year=' ) then             ! calendar option (optional)
       call NewDate_Options(trim(option(3:4096)),'set')       ! set calendar option
-      write(0,*),'INFO: using calendar option '//trim(option)
-    else if(option(1:9)  == '--version' ) then              ! version option
-      write(0,*),version
+      write(0,*)'INFO: using calendar option '//trim(option(3:4096))
+    else if(trim(key)  == '--version' ) then              ! version option
+      write(0,*)version
       stop
-    else if(option(1:6)  == '--help' ) then              ! help option
+    else if(trim(key)  == '--help' ) then              ! help option
       goto 777
-    else if(option(1:2)  == '-h' ) then                  ! help option
+    else if(trim(key)  == '-h' ) then                  ! help option
       goto 777
     else 
-      print *,"ERROR: unrecognized option '"//trim(option)//"'"
+      print *,"ERROR: unrecognized argument '"//trim(option)//"'"
       if( trim(statusfile) .ne. '/dev/null' ) call set_status(statusfile,'status="ABORT"')
-      goto 777
+      errors = errors + 1
     endif
     cur_arg = cur_arg + 1
   enddo
+  if(errors > 0) then
+    write(0,*)errors,' errors in argument parsing'
+    goto 777
+  endif
   if( trim(statusfile) .ne. '/dev/null' ) call set_status(statusfile,'status="ABORT"')
   use_anal = (printable3(1) == printable1(1)) .and. (printable3(2) == printable1(2))
   if(printable1(1) == -1 .or. printable2(1) == -1) then
-    write(0,*),'ERROR: missing start/end date(s)'
+    write(0,*)'ERROR: missing start/end date(s)'
     goto 777
   endif
   if(printable1(1) == -1 .or. printable1(1) == -1) then
-    write(0,*),'ERROR: bad start date'
+    write(0,*)'ERROR: bad start date'
     goto 777
   endif
   if(printable2(1) == -1 .or. printable2(1) == -1) then
-    write(0,*),'ERROR: bad end date'
+    write(0,*)'ERROR: bad end date'
     goto 777
   endif
   if(use_anal .and. trim(anal) == '' ) then
-     write(0,*),'ERROR: initial conditions missing'
+     write(0,*)'ERROR: initial conditions missing'
     goto 777
   endif
   if(trim(nest_rept) == '' ) then
-    write(0,*),'ERROR: boundary conditions directory missing'
+    write(0,*)'ERROR: boundary conditions directory missing'
     goto 777
   endif
   if(trim(set_name) == '' ) then
-    write(0,*),'ERROR: dataset name missing'
+    write(0,*)'ERROR: dataset name missing'
     goto 777
   endif
-  write(0,*),'INFO: from ',trim(date1),' to ',trim(date2),' every',delta,' hours'
-  write(0,*),"INFO: boundary conditions data in '"//trim(nest_rept)//"'"
-  if(use_anal) write(0,*),"INFO: using initial conditions file '"//trim(anal)//"'"
+  write(0,*)'INFO: from ',trim(date1),' to ',trim(date2),' every',delta,' hours'
+  write(0,*)"INFO: boundary conditions data in '"//trim(nest_rept)//"'"
+  if(use_anal) write(0,*)"INFO: using initial conditions file '"//trim(anal)//"'"
 
   open(unit=11,file='content',form='FORMATTED')
   write(11,'(A/A)')'1','GEM_input_file_0001'   ! there will be 1 file in the directory and it will be called GEM_input_file_0001
@@ -202,15 +209,15 @@ program print_date_range
       oldmonth = month_name
       first_in_month = .true.
       month_is_file = clib_isfile( month_name )  ! it is a file name
-!       write(0,*),month_name,month_is_file
+!       write(0,*)month_name,month_is_file
       if(month_is_file == 1) then
-        write(0,*),'INFO: using monthly boundary file '//trim(oldmonth)
+        write(0,*)'INFO: using monthly boundary file '//trim(oldmonth)
       else
         if(clib_isdir( month_name ) .ne. 1) then ! is it a directory name
-          write(0,*),'ERROR: '//trim(oldmonth)//' is neither a directory nor a file, ABORTING'
+          write(0,*)'ERROR: '//trim(oldmonth)//' is neither a directory nor a file, ABORTING'
           stop
         endif
-!         write(0,*),'INFO: using monthly boundary files directory '//trim(oldmonth)
+!         write(0,*)'INFO: using monthly boundary files directory '//trim(oldmonth)
       endif
     endif
 
@@ -225,29 +232,29 @@ program print_date_range
           if(sub_daily) arg2_nc = 10    ! sub_daily mode, hh MUST be present
           do while(arg2_nc <= 14)
             oldpath = trim(month_name) // '/' // trim(set_pattern) // arg2(1:arg2_nc)   ! look for 'pattern'YYYYMMDD[hh][mm][ss] file name
-!              write(0,*),'DEBUG: trying ' // trim(oldpath)
+!              write(0,*)'DEBUG: trying ' // trim(oldpath)
             status = clib_glob(globs,nglob,trim(oldpath),MAXGLOB)            ! find file name match(es)
             if(status == CLIB_OK .and. nglob == 1) exit                      ! found unique match , exit loop
             arg2_nc = arg2_nc + 2                                            ! try longer match
             if( .not. sub_daily) then
-              write(0,*),'ERROR: --sub_daily flag is absent and no daily file has been found'
-              write(0,*),'      '//trim(oldpath)
+              write(0,*)'ERROR: --sub_daily flag is absent and no daily file has been found'
+              write(0,*)'      '//trim(oldpath)
               stop
             endif
           enddo
-          write(0,*),'INFO: using boundary files pattern '//trim(oldmonth)//'/'//trim(set_pattern)//arg2(1:6)//template(7:arg2_nc)
+          write(0,*)'INFO: using boundary files pattern '//trim(oldmonth)//'/'//trim(set_pattern)//arg2(1:6)//template(7:arg2_nc)
           if(arg2_nc > 14) then  ! OOPS
-            write(0,*),'ERROR: no file was found matching ' // trim(oldpath)
-            write(0,*),'       date = '//arg2(1:4)//'/'//arg2(5:6)//'/'//arg2(7:8)//'-'//arg2(9:10)//':'//arg2(11:12)//':'//arg2(13:14)
+            write(0,*)'ERROR: no file was found matching ' // trim(oldpath)
+            write(0,*)'       date = '//arg2(1:4)//'/'//arg2(5:6)//'/'//arg2(7:8)//'-'//arg2(9:10)//':'//arg2(11:12)//':'//arg2(13:14)
             stop
           endif
         endif
         oldpath = trim(month_name) // '/' // trim(set_pattern) // arg2(1:arg2_nc) ! look for 'pattern'YYYYMMDD[hh[mmdd]]  ( default pattern is * )
         globs(1) = 'UnknownFile'
-!         write(0,*),'INFO: looking for '//trim(oldpath)
+!         write(0,*)'INFO: looking for '//trim(oldpath)
         status = clib_glob(globs,nglob,trim(oldpath),MAXGLOB)            ! find file name match(es)
         if(status .ne. CLIB_OK .or. nglob > 1) then                      ! there must be one and only one match
-           write(0,*),'ERROR: '//trim(oldpath)//' is ambiguous or does not exist'
+           write(0,*)'ERROR: '//trim(oldpath)//' is ambiguous or does not exist'
            stop
         endif
         oldpath = globs(1)     ! use file name that matches pattern
@@ -269,33 +276,33 @@ program print_date_range
     use_anal = .false.                                ! use_anal can only be true for the first time frame
     ntimes = ntimes + 1                               ! counter for time frames
   enddo
-  write(0,*),"INFO: ",ntimes," directory/link sets created"
+  write(0,*)"INFO: ",ntimes," directory/link sets created"
   if( trim(statusfile) .ne. '/dev/null' ) call set_status(statusfile,'status="SUCCESS"')
   call f_exit(0)
   stop
 11  format(I8,1x,I6)
 12  format(I8,I6)
 777 continue
-  write(0,*),'USAGE: '//trim(name)//' [-h|--help] --start_date= --end_date= --nhours= --nseconds= [--start_sym=] [--status=statusfile] \'
-  write(0,*),'        [--version] [--sub-daily] [--start_anal=] --pilot_data= --set_name= [--set_pattern] [--year=gregorian|360_day|365_day]'
-  write(0,*),'       '//version
-  write(0,*),''
-  write(0,*),'       statusfile : path to status file that will contain(status="SUCCESS" or status="ABORT")'
-  write(0,*),'       start_date : YYYYMMDD.HHMMSS or YYYYMMDDHHMMSS , start of this simulation slice'
-  write(0,*),'       end_date   : YYYYMMDD.HHMMSS or YYYYMMDDHHMMSS , end of this simulation slice'
-  write(0,*),'       nseconds   : interval in seconds between boundary condition files'
-  write(0,*),'       nhours     : interval in hours between boundary condition files'
-  write(0,*),'       start_sym  : YYYYMMDD.HHMMSS or YYYYMMDDHHMMSS , start of entire simulation'
-  write(0,*),'       start_anal : initial conditions (only used if start_date == start_sym)'
-  write(0,*),'       pilot_data : directory containing the boundary condition files'
-  write(0,*),'       set_name   : dataset/experiment name'
-  write(0,*),'       set_pattern: disambiguation pattern for file "globbing"'
-  write(0,*),'       --year=... : (optional) argument ,  calendar to be used (gregorian by default)'
-  write(0,*),'       --sub_daily: driving data files contain less than a day of data (hh/hhmm/hhmmss in file names)'
-  write(0,*),'       --version  : print version and quit'
-  write(0,*),'       arguments between [] are optional'
-  write(0,*),'       only one of --nhours/--nseconds is necessary'
-  write(0,*),'       for date parameters, the trailing 0s in the HHMMSS part may be omitted'
+  write(0,*)'USAGE: '//trim(name)//' [-h|--help] --start_date= --end_date= --nhours= --nseconds= [--start_sym=] [--status=statusfile] \'
+  write(0,*)'        [--version] [--sub-daily] [--start_anal=] --pilot_data= --set_name= [--set_pattern] [--year=gregorian|360_day|365_day]'
+  write(0,*)'       '//version
+  write(0,*)''
+  write(0,*)'       statusfile : path to status file that will contain(status="SUCCESS" or status="ABORT")'
+  write(0,*)'       start_date : YYYYMMDD.HHMMSS or YYYYMMDDHHMMSS , start of this simulation slice'
+  write(0,*)'       end_date   : YYYYMMDD.HHMMSS or YYYYMMDDHHMMSS , end of this simulation slice'
+  write(0,*)'       nseconds   : interval in seconds between boundary condition files'
+  write(0,*)'       nhours     : interval in hours between boundary condition files'
+  write(0,*)'       start_sym  : YYYYMMDD.HHMMSS or YYYYMMDDHHMMSS , start of entire simulation'
+  write(0,*)'       start_anal : initial conditions (only used if start_date == start_sym)'
+  write(0,*)'       pilot_data : directory containing the boundary condition files'
+  write(0,*)'       set_name   : dataset/experiment name'
+  write(0,*)'       set_pattern: disambiguation pattern for file "globbing"'
+  write(0,*)'       --year=... : (optional) argument ,  calendar to be used (gregorian by default)'
+  write(0,*)'       --sub_daily: driving data files contain less than a day of data (hh/hhmm/hhmmss in file names)'
+  write(0,*)'       --version  : print version and quit'
+  write(0,*)'       arguments between [] are optional'
+  write(0,*)'       only one of --nhours/--nseconds is necessary'
+  write(0,*)'       for date parameters, the trailing 0s in the HHMMSS part may be omitted'
   call f_exit(1)
   stop
 end program
@@ -314,3 +321,23 @@ subroutine set_status(filename,message)
   endif
   return
 end subroutine set_status
+subroutine optkey(key,option)
+  implicit none
+  character(len=*), intent(OUT) :: key
+  character(len=*), intent(IN) :: option
+  integer :: l, i
+  l = len(option)
+  i = index(option,'=')
+  key = option(1:len(key))
+  if(i > 0) key = option(1:i)
+end subroutine optkey
+subroutine optval(val,option)
+  implicit none
+  character(len=*), intent(OUT) :: val
+  character(len=*), intent(IN) :: option
+  integer :: l, i
+  l = len(option)
+  i = index(option,'=')
+  val = ' '
+  if(i > 0) val = option(i+1:l)
+end subroutine optval
