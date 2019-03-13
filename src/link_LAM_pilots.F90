@@ -166,8 +166,8 @@ program print_date_range
                   swa,lng,dltf,ubc,extra1,extra2,extra3)
       hours = deet
       hours = hours * npas / 3600.0_8
-      status =  newdate(datev,printable1(1),printable1(2),-3)
       call incdatr(datev,dateo,hours)
+      status =  newdate(datev,printable1(1),printable1(2),-3)
       write(6,*)printable1(1)," ,",printable1(2)," ,'"//trim(name_to_index)//"'"
       keyrec = fstsui(iun,ni,nj,nk)
     enddo
