@@ -21,8 +21,16 @@ program print_date_range
   character(len=128) :: version = 'version 1.0.10 2019/03/13'
   integer, parameter :: MAXGLOB=2
   character(len=4096), dimension(MAXGLOB) :: globs
-  integer :: nglob, arg2_nc, errors
+  integer :: nglob, arg2_nc, errors, iun, keyrec, ni,nj,nk, datev
+  integer :: dateo,deet,npas,nbits,datyp,ip1,ip2,ip3,ig1,ig2,ig3,ig4
+  integer :: swa,lng,dltf,ubc,extra1,extra2,extra3
+  real*8 :: hours
+  character(len=1) :: grtyp
+  character(len=2) :: typvar
+  character(len=4) :: nomvar
+  character(len=12) :: etiket
   character(len=16) :: template
+  integer, external :: fnom, fstouv, fstinf, fstsui
 
   interface
     subroutine f_exit(code) BIND(C,name='exit')
@@ -60,6 +68,7 @@ program print_date_range
   set_pattern = '*'  ! default filename pattern for set name "globbing"
 
   errors = 0
+  iun = 0
   cur_arg = 1
   nargs = command_argument_count()
   if(nargs == 0) goto 777
@@ -133,7 +142,7 @@ program print_date_range
     else if(trim(key)  == '-h' ) then                  ! help option
       goto 777
     else 
-      print *,"ERROR: unrecognized argument '"//trim(option)//"'"
+       write(0,*)"ERROR: unrecognized argument '"//trim(option)//"'"
       if( trim(statusfile) .ne. '/dev/null' ) call set_status(statusfile,'status="ABORT"')
       errors = errors + 1
     endif
@@ -144,6 +153,28 @@ program print_date_range
     goto 777
   endif
   if( trim(statusfile) .ne. '/dev/null' ) call set_status(statusfile,'status="ABORT"')
+  if(indexmode) then  ! file indexing mode
+    status = fnom(iun,trim(name_to_index),'STD+RND+OLD+R/O',0)   ! connect file)
+    if(status < 0) goto 555
+    status = fstouv(iun,'RND')
+    if(status < 0) goto 555
+    keyrec = fstinf(iun,ni,nj,nk,-1,"",-1,-1,-1,"","P0")  ! first P0 record
+    do while(keyrec >= 0)
+      call fstprm(keyrec,dateo,deet,npas,ni,nj,nk,nbits,datyp,ip1,ip2,ip3, &
+                  typvar,nomvar,etiket,grtyp,ig1,ig2,ig3,ig4, &
+                  swa,lng,dltf,ubc,extra1,extra2,extra3)
+      hours = deet
+      hours = hours * npas / 3600.0_8
+      status =  newdate(datev,printable1(1),printable1(2),-3)
+      call incdatr(datev,dateo,hours)
+      write(6,*)printable1(1)," ,",printable1(2)," ,'"//trim(name_to_index)//"'"
+      keyrec = fstsui(iun,ni,nj,nk)
+    enddo
+    call fstfrm(iun)
+    goto 666      ! set status to success
+555  write(0,*)"ERROR: while opening file '"//trim(name_to_index)//"'"
+    call f_exit(1)
+  endif
   use_anal = (printable3(1) == printable1(1)) .and. (printable3(2) == printable1(2))
   if(printable1(1) == -1 .or. printable2(1) == -1) then
     write(0,*)'ERROR: missing start/end date(s)'
@@ -277,14 +308,17 @@ program print_date_range
     ntimes = ntimes + 1                               ! counter for time frames
   enddo
   write(0,*)"INFO: ",ntimes," directory/link sets created"
+666 continue
   if( trim(statusfile) .ne. '/dev/null' ) call set_status(statusfile,'status="SUCCESS"')
   call f_exit(0)
   stop
 11  format(I8,1x,I6)
 12  format(I8,I6)
 777 continue
-  write(0,*)'USAGE: '//trim(name)//' [-h|--help] --start_date= --end_date= --nhours= --nseconds= [--start_sym=] [--status=statusfile] \'
-  write(0,*)'        [--version] [--sub-daily] [--start_anal=] --pilot_data= --set_name= [--set_pattern] [--year=gregorian|360_day|365_day]'
+  write(0,*)'USAGE: '//trim(name)//' [-h|--help] --start_date= --end_date= --nhours= --nseconds= --set_name= \'
+  write(0,*)'        [--start_sym=] [--status=statusfile] [--sub-daily] [--start_anal=] --pilot_data= \'
+  write(0,*)'        [--set_pattern] [--year=gregorian|360_day|365_day] [--index=] [--version]'
+  write(0,*)''
   write(0,*)'       '//version
   write(0,*)''
   write(0,*)'       statusfile : path to status file that will contain(status="SUCCESS" or status="ABORT")'
@@ -297,9 +331,10 @@ program print_date_range
   write(0,*)'       pilot_data : directory containing the boundary condition files'
   write(0,*)'       set_name   : dataset/experiment name'
   write(0,*)'       set_pattern: disambiguation pattern for file "globbing"'
-  write(0,*)'       --year=... : (optional) argument ,  calendar to be used (gregorian by default)'
-  write(0,*)'       --sub_daily: driving data files contain less than a day of data (hh/hhmm/hhmmss in file names)'
-  write(0,*)'       --version  : print version and quit'
+  write(0,*)'       year=...   : (optional) argument ,  calendar to be used (gregorian by default)'
+  write(0,*)'       sub_daily  : driving data files contain less than a day of data (hh/hhmm/hhmmss in file names)'
+  write(0,*)'       index      : filename to  index (looking for record P0)'
+  write(0,*)'       version    : print version and quit'
   write(0,*)'       arguments between [] are optional'
   write(0,*)'       only one of --nhours/--nseconds is necessary'
   write(0,*)'       for date parameters, the trailing 0s in the HHMMSS part may be omitted'
