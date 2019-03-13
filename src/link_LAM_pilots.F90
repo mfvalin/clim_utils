@@ -168,7 +168,8 @@ program print_date_range
       hours = hours * npas / 3600.0_8
       call incdatr(datev,dateo,hours)
       status =  newdate(datev,printable1(1),printable1(2),-3)
-      write(6,*)printable1(1)," ,",printable1(2)," ,'"//trim(name_to_index)//"'"
+      write(6,33)printable1(1)," ,",printable1(2)," ,'"//trim(name_to_index)//"'"
+33    format(I8.8,A2,I8.8,A)
       keyrec = fstsui(iun,ni,nj,nk)
     enddo
     call fstfrm(iun)
