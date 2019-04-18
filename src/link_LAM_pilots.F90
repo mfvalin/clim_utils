@@ -1,3 +1,53 @@
+module file_index
+  use ISO_C_BINDING
+  implicit none
+  integer, parameter :: PAGESIZE = 128
+  type :: indexpage
+    type(indexpage), pointer :: next
+    integer(KIND=8), dimension(0:PAGESIZE-1) :: date
+    character(len=128), dimension(0:PAGESIZE-1) :: name
+  end type
+  save
+  type(indexpage), pointer :: dtbl=>null()
+  integer :: ntbl = 0
+  contains
+    subroutine find_file(date1, date2, name)
+      integer, intent(IN) :: date1, date2
+      character(len=*), intent(OUT) :: name
+      type(indexpage), pointer :: p
+      integer(KIND=8) :: date
+      integer :: i, j
+
+      date = date1
+      date = ishft(date1,32) + date2
+      name = ""
+      p => dtbl
+      do i = 0, ntbl-1
+        j = mod(i,PAGESIZE)
+        if(p%date(j) == date) then
+          name = p%name(j)
+          exit
+        endif
+        if(j == PAGESIZE-1 .and. associated(p%next)) p => p%next
+      enddo
+    end subroutine find_file
+    subroutine build_index(indexfile)
+      character(len=*), intent(IN) :: indexfile
+      integer :: date1, date2
+      character(len=128) :: name
+      type(indexpage), pointer :: p, t
+
+      ntbl = 0
+      p => dtbl
+      do while(associated(p))  ! deallocate current index
+        t => p%next
+        deallocate(p)
+        p => t
+      enddo
+      
+    end subroutine add_file
+end module file_index
+
 program print_date_range
   use ISO_C_BINDING
   implicit none
@@ -24,7 +74,7 @@ program print_date_range
   integer :: nglob, arg2_nc, errors, iun, keyrec, ni,nj,nk, datev
   integer :: dateo,deet,npas,nbits,datyp,ip1,ip2,ip3,ig1,ig2,ig3,ig4
   integer :: swa,lng,dltf,ubc,extra1,extra2,extra3
-  real*8 :: hours
+  real*8 :: hours, file_span
   character(len=1) :: grtyp
   character(len=2) :: typvar
   character(len=4) :: nomvar
@@ -84,6 +134,7 @@ program print_date_range
   sub_daily = .false.
   indexmode = .false.
   template = 'YYYYMM????????'
+  file_span = 24.00   ! default is daily files if not monthly
 
   do while(cur_arg <= nargs)      ! process command line options
     call get_command_argument(cur_arg,option,arg_len,status)
@@ -119,6 +170,11 @@ program print_date_range
       endif
     else if(trim(key) == '--sub_daily' ) then        ! sub daily time resolution for driving data files
       sub_daily = .true.
+      file_span = 1.0                                ! default for sub daily is hourly
+      if(val(1:1) .ne. ' ') then
+        if(val(1:1) == 'm' .or. val(1:1) == 'M') file_span = file_span / 60.0_8     ! minutely files
+        if(val(1:1) == 's' .or. val(1:1) == 'S') file_span = file_span / 3600.0_8   ! secondly files
+      endif
     else if(trim(key) == '--start_anal=' ) then       ! initial analysis (only necessary if start_sym == start_date)
       anal = val
     else if(trim(key) == '--index=' ) then       ! filename to index (look for P0)
@@ -219,7 +275,7 @@ program print_date_range
     status = newdate(stamp1,p1,p2,-3)                 ! convert to printable
     p3 = p1                                           ! YYYYMMDD
     if(p2 == 0 .and. (.not. use_anal) .and. (.not. sub_daily)) then   ! hhmmss = 0, use previous day, except if use_anal or sub_daily
-      call incdatr(stamp3,stamp1,-24.0_8)
+      call incdatr(stamp3,stamp1,-file_span)          ! subtract file contents interval
       status = newdate(stamp3,p3,p4,-3)
     endif
 !     print 102,p1,'.',p2/100,p3                        ! print itname
@@ -237,7 +293,7 @@ program print_date_range
     status = f_unlink( newp )                          ! in case file/link named ....../content already exists
     status = f_link( oldp, newp )                      ! hard link to file named 'content' in upper directory
 
-    month_name = trim(nest_rept) // '/' // trim(set_name) // '_' // arg2(1:6)   ! can be a file or a directory
+    month_name = trim(nest_rept) // '/' // trim(set_name) // '_' // arg2(1:6)   ! month part can be a file or a directory
     if(trim(oldmonth) .ne. month_name) then      ! new month name
       oldmonth = month_name
       first_in_month = .true.
