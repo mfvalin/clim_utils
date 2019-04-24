@@ -1,86 +1,6 @@
 module file_index
   use ISO_C_BINDING
   implicit none
-  integer, parameter :: PAGESIZE = 128
-  type :: indexpage
-    type(indexpage), pointer :: next
-    integer(KIND=8), dimension(0:PAGESIZE-1) :: date
-    character(len=128), dimension(0:PAGESIZE-1) :: name
-  end type
-  save
-  type(indexpage), pointer :: dtbl=>null()
-  integer :: ntbl = 0
-  contains
-    subroutine find_file(date1, date2, name)
-      integer, intent(IN) :: date1, date2
-      character(len=*), intent(OUT) :: name
-      type(indexpage), pointer :: p
-      integer(KIND=8) :: date
-      integer :: i, j
-
-      date = date1
-      date = ishft(date1,32) + date2
-      name = ""
-      p => dtbl
-      do i = 0, ntbl-1
-        j = mod(i,PAGESIZE)
-        if(p%date(j) == date) then
-          name = p%name(j)
-          exit
-        endif
-        if(j == PAGESIZE-1 .and. associated(p%next)) p => p%next
-      enddo
-    end subroutine find_file
-    subroutine build_index(indexfile)
-      character(len=*), intent(IN) :: indexfile
-      integer :: date1, date2
-      character(len=128) :: name
-      type(indexpage), pointer :: p, t
-
-      ntbl = 0
-      p => dtbl
-      do while(associated(p))  ! deallocate current index
-        t => p%next
-        deallocate(p)
-        p => t
-      enddo
-      
-    end subroutine add_file
-end module file_index
-
-program print_date_range
-  use ISO_C_BINDING
-  implicit none
-#include "clib_interface.cdk"
-#define CLIB_OK 1
-  integer, external :: newdate
-  integer :: stamp, p1, p2, stamp1, stamp2, p3, p4, stamp3
-  integer, dimension(2) :: printable1, printable2, printable3
-  real *8 :: delta, diff
-  integer :: status
-  character(len=128) :: date1, date2, interval, name, sym
-  character(len=32) :: arg1, arg2, key
-  character(len=4096) :: oldpath, newpath, dirpath, option, oldmonth, month_name, val
-  character(len=1024) :: set_pattern
-  character(C_CHAR), dimension(4096) :: oldp, newp, dirp
-  character(len=4096) :: nest_rept, set_name, anal, statusfile, name_to_index
-  integer(C_INT) :: mode
-  logical :: use_anal, first_in_month, sub_daily, indexmode
-  integer :: cur_arg, nargs, arg_len, ntimes
-  integer :: month_is_file = 0
-  character(len=128) :: version = 'version 1.0.10 2019/03/13'
-  integer, parameter :: MAXGLOB=2
-  character(len=4096), dimension(MAXGLOB) :: globs
-  integer :: nglob, arg2_nc, errors, iun, keyrec, ni,nj,nk, datev
-  integer :: dateo,deet,npas,nbits,datyp,ip1,ip2,ip3,ig1,ig2,ig3,ig4
-  integer :: swa,lng,dltf,ubc,extra1,extra2,extra3
-  real*8 :: hours, file_span
-  character(len=1) :: grtyp
-  character(len=2) :: typvar
-  character(len=4) :: nomvar
-  character(len=12) :: etiket
-  character(len=16) :: template
-  integer, external :: fnom, fstouv, fstinf, fstsui
 
   interface
     subroutine f_exit(code) BIND(C,name='exit')
@@ -109,6 +29,132 @@ program print_date_range
       integer(C_INT) :: status
     end function f_symlink
   end interface
+  integer, parameter :: PAGESIZE = 128
+  type :: indexpage
+    type(indexpage), pointer :: next
+    integer(KIND=8), dimension(0:PAGESIZE-1) :: date
+    character(len=128), dimension(0:PAGESIZE-1) :: name
+  end type
+  save
+  type(indexpage), pointer :: dtbl=>null()
+  type(indexpage), pointer :: curp=>null()   ! current page
+  character(len=4096) :: indexname = ' '
+  integer :: ntbl = 0
+  integer :: curi = 0
+  contains
+    subroutine find_file(date1, date2, name) ! find name of file where YYYYMMDD:hhmmss00 (date1:date2) will be found
+      integer, intent(IN) :: date1, date2
+      character(len=*), intent(OUT) :: name
+      type(indexpage), pointer :: p
+      integer(KIND=8) :: date
+      integer :: i, j
+
+      date = date1
+      date = ishft(date,32) + date2
+      name = ""                       ! blank name returned if search fails
+      p => curp
+      do i = curi, ntbl-1
+        j = mod(i,PAGESIZE)           ! index in page
+        if(p%date(j) == date) then    ! date matches 
+          name = p%name(j)
+          write(0,*)'INFO: from',curi,' to',j
+          curi = j
+          exit                        ! done, return name to caller
+        endif
+        if(j == PAGESIZE-1 .and. associated(p%next)) then
+          p => p%next
+          curp =>p
+        endif
+      enddo
+      if(name == ' ') then
+        write(0,1)'ERROR: time frame ',date1,':',date2,' NOT FOUND, ABORTING'
+1       format(A,I8,A1,I8.8,A)
+        call f_exit(1)
+      endif
+    end subroutine find_file
+
+    subroutine build_index(indexfile)     ! from indexfile, build index after deallocating precious index if it exists
+      character(len=*), intent(IN) :: indexfile
+      integer :: date1, date2
+      character(len=128) :: name
+      type(indexpage), pointer :: p, t
+      integer :: iun, status, ix
+      integer, external :: fnom, fclos
+
+      if( trim(indexfile) == trim(indexname) ) then
+        write(0,*) 'INFO: reusing index file '//trim(indexname)
+        return
+      else
+        write(0,*) 'INFO: using index file '//trim(indexfile)
+      endif
+      p => dtbl
+      do while(associated(p))  ! deallocate current index pages if they exist
+        t => p%next            ! pointer to next page
+        deallocate(p)
+        p => t
+      enddo
+      allocate(dtbl)           ! allocate first page
+      ntbl = 0                 ! table is empty
+      curi = 0
+      p => dtbl
+      curp => dtbl
+      p%next => null()
+      iun = 0
+      status = fnom(iun,trim(indexfile),'FTN+SEQ+FMT',0)  ! open index file
+      do while(.true.)
+        read(iun,*,end=1) date1, date2, name  ! read index file to the end
+!         write(0,*) date1,date2
+        ix = mod(ntbl,PAGESIZE)
+        p%date(ix) = date1
+        p%date(ix) = ishft(p%date(ix),32) + date2
+        p%name(ix) = name
+        ntbl = ntbl + 1
+        if(ix == PAGESIZE-1)then  ! current page is full, allocate a new page
+          allocate(p%next)
+          p=>p%next
+        endif
+      enddo
+1     status = fclos(iun)
+      indexname = indexfile
+    end subroutine build_index
+end module file_index
+
+program print_date_range
+  use ISO_C_BINDING
+  use file_index
+  implicit none
+#include "clib_interface.cdk"
+#define CLIB_OK 1
+  integer, external :: newdate
+  integer :: stamp, p1, p2, stamp1, stamp2, p3, p4, stamp3
+  integer :: dt1, dt2
+  integer, dimension(2) :: printable1, printable2, printable3
+  real *8 :: delta, diff
+  integer :: status
+  character(len=128) :: date1, date2, interval, name, sym
+  character(len=32) :: arg1, arg2, key
+  character(len=4096) :: oldpath, newpath, dirpath, option, oldmonth, month_name, val, indexfile, targetname
+  character(len=1024) :: set_pattern
+  character(C_CHAR), dimension(4096) :: oldp, newp, dirp
+  character(len=4096) :: nest_rept, set_name, anal, statusfile, name_to_index
+  integer(C_INT) :: mode
+  logical :: use_anal, first_in_month, sub_daily, indexmode
+  integer :: cur_arg, nargs, arg_len, ntimes
+  integer :: month_is_file = 0
+  integer :: index_file_found = 0
+  character(len=128) :: version = 'version 1.0.11 2019/04/24'
+  integer, parameter :: MAXGLOB=2
+  character(len=4096), dimension(MAXGLOB) :: globs
+  integer :: nglob, arg2_nc, errors, iun, keyrec, ni,nj,nk, datev
+  integer :: dateo,deet,npas,nbits,datyp,ip1,ip2,ip3,ig1,ig2,ig3,ig4
+  integer :: swa,lng,dltf,ubc,extra1,extra2,extra3
+  real*8 :: hours, file_span
+  character(len=1) :: grtyp
+  character(len=2) :: typvar
+  character(len=4) :: nomvar
+  character(len=12) :: etiket
+  character(len=16) :: template
+  integer, external :: fnom, fstouv, fstinf, fstsui
 
   CALL get_command_argument(0, name)   ! program name as seen by OS
   statusfile = '/dev/null'
@@ -215,7 +261,11 @@ program print_date_range
     if(status < 0) goto 555
     status = fstouv(iun,'RND')
     if(status < 0) goto 555
-    keyrec = fstinf(iun,ni,nj,nk,-1,"",-1,-1,-1,"","P0")  ! first P0 record
+    keyrec = fstinf(iun,ni,nj,nk,-1,"",-1,-1,-1,"","TT")  ! first TT record
+    call fstprm(keyrec,dateo,deet,npas,ni,nj,nk,nbits,datyp,ip1,ip2,ip3, &
+                typvar,nomvar,etiket,grtyp,ig1,ig2,ig3,ig4, &
+                swa,lng,dltf,ubc,extra1,extra2,extra3)
+    keyrec = fstinf(iun,ni,nj,nk,-1,"",ip1,-1,-1,"","TT")  ! first TT record with ip1 forced
     do while(keyrec >= 0)
       call fstprm(keyrec,dateo,deet,npas,ni,nj,nk,nbits,datyp,ip1,ip2,ip3, &
                   typvar,nomvar,etiket,grtyp,ig1,ig2,ig3,ig4, &
@@ -226,7 +276,7 @@ program print_date_range
       status =  newdate(datev,printable1(1),printable1(2),-3)
       write(6,33)printable1(1)," ,",printable1(2)," ,'"//trim(name_to_index)//"'"
 33    format(I8.8,A2,I8.8,A)
-      keyrec = fstsui(iun,ni,nj,nk)
+      keyrec = fstsui(iun,ni,nj,nk)        ! find subsequent matches if any
     enddo
     call fstfrm(iun)
     goto 666      ! set status to success
@@ -273,6 +323,7 @@ program print_date_range
   ntimes = 0
   do while(diff >= 0)                                 ! end date - next date
     status = newdate(stamp1,p1,p2,-3)                 ! convert to printable
+    status = newdate(stamp1,dt1,dt2,-3)
     p3 = p1                                           ! YYYYMMDD
     if(p2 == 0 .and. (.not. use_anal) .and. (.not. sub_daily)) then   ! hhmmss = 0, use previous day, except if use_anal or sub_daily
       call incdatr(stamp3,stamp1,-file_span)          ! subtract file contents interval
@@ -306,6 +357,12 @@ program print_date_range
           write(0,*)'ERROR: '//trim(oldmonth)//' is neither a directory nor a file, ABORTING'
           stop
         endif
+        indexfile = trim(month_name)//'/index_file'
+        index_file_found = clib_isfile( indexfile )
+        if(1 == index_file_found ) then ! it is a file name) 
+!           write(0,*) 'INFO: index file found'
+          call build_index(indexfile)
+        endif
 !         write(0,*)'INFO: using monthly boundary files directory '//trim(oldmonth)
       endif
     endif
@@ -316,37 +373,43 @@ program print_date_range
       if(month_is_file == 1) then   ! monthly boundary contitions file, may get linked to multiple times
         oldpath = month_name
       else    ! same month, another day
-        if(first_in_month) then  ! see if name ends in YYYYMMDDhh, if so use 10 chars from arg2
-          arg2_nc = 8
-          if(sub_daily) arg2_nc = 10    ! sub_daily mode, hh MUST be present
-          do while(arg2_nc <= 14)
-            oldpath = trim(month_name) // '/' // trim(set_pattern) // arg2(1:arg2_nc)   ! look for 'pattern'YYYYMMDD[hh][mm][ss] file name
-!              write(0,*)'DEBUG: trying ' // trim(oldpath)
-            status = clib_glob(globs,nglob,trim(oldpath),MAXGLOB)            ! find file name match(es)
-            if(status == CLIB_OK .and. nglob == 1) exit                      ! found unique match , exit loop
-            arg2_nc = arg2_nc + 2                                            ! try longer match
-            if( .not. sub_daily) then
-              write(0,*)'ERROR: --sub_daily flag is absent and no daily file has been found'
-              write(0,*)'      '//trim(oldpath)
+        if(1 == index_file_found ) then                                        ! WITH INDEX FILE
+          call find_file(dt1,dt2,targetname)
+          oldpath = trim(month_name) // '/'// trim(targetname)
+          write(0,*)'INFO: target is',dt1,dt2," '" // trim(oldpath) // "'"
+        else                                                                   ! NO INDEX FILE FOUND
+          if(first_in_month) then  ! see if name ends in YYYYMMDDhh, if so use 10 chars from arg2
+            arg2_nc = 8
+            if(sub_daily) arg2_nc = 10    ! sub_daily mode, hh MUST be present
+            do while(arg2_nc <= 14)
+              oldpath = trim(month_name) // '/' // trim(set_pattern) // arg2(1:arg2_nc)   ! look for 'pattern'YYYYMMDD[hh][mm][ss] file name
+  !              write(0,*)'DEBUG: trying ' // trim(oldpath)
+              status = clib_glob(globs,nglob,trim(oldpath),MAXGLOB)            ! find file name match(es)
+              if(status == CLIB_OK .and. nglob == 1) exit                      ! found unique match , exit loop
+              arg2_nc = arg2_nc + 2                                            ! try longer match
+              if( .not. sub_daily) then
+                write(0,*)'ERROR: --sub_daily flag is absent and no daily file has been found'
+                write(0,*)'      '//trim(oldpath)
+                stop
+              endif
+            enddo
+            write(0,*)'INFO: using boundary files pattern '//trim(oldmonth)//'/'//trim(set_pattern)//arg2(1:6)//template(7:arg2_nc)
+            if(arg2_nc > 14) then  ! OOPS
+              write(0,*)'ERROR: no file was found matching ' // trim(oldpath)
+              write(0,*)'       date = '//arg2(1:4)//'/'//arg2(5:6)//'/'//arg2(7:8)//'-'//arg2(9:10)//':'//arg2(11:12)//':'//arg2(13:14)
               stop
             endif
-          enddo
-          write(0,*)'INFO: using boundary files pattern '//trim(oldmonth)//'/'//trim(set_pattern)//arg2(1:6)//template(7:arg2_nc)
-          if(arg2_nc > 14) then  ! OOPS
-            write(0,*)'ERROR: no file was found matching ' // trim(oldpath)
-            write(0,*)'       date = '//arg2(1:4)//'/'//arg2(5:6)//'/'//arg2(7:8)//'-'//arg2(9:10)//':'//arg2(11:12)//':'//arg2(13:14)
+          endif
+          oldpath = trim(month_name) // '/' // trim(set_pattern) // arg2(1:arg2_nc) ! look for 'pattern'YYYYMMDD[hh[mmdd]]  ( default pattern is * )
+          globs(1) = 'UnknownFile'
+  !         write(0,*)'INFO: looking for '//trim(oldpath)
+          status = clib_glob(globs,nglob,trim(oldpath),MAXGLOB)            ! find file name match(es)
+          if(status .ne. CLIB_OK .or. nglob > 1) then                      ! there must be one and only one match
+            write(0,*)'ERROR: '//trim(oldpath)//' is ambiguous or does not exist'
             stop
           endif
-        endif
-        oldpath = trim(month_name) // '/' // trim(set_pattern) // arg2(1:arg2_nc) ! look for 'pattern'YYYYMMDD[hh[mmdd]]  ( default pattern is * )
-        globs(1) = 'UnknownFile'
-!         write(0,*)'INFO: looking for '//trim(oldpath)
-        status = clib_glob(globs,nglob,trim(oldpath),MAXGLOB)            ! find file name match(es)
-        if(status .ne. CLIB_OK .or. nglob > 1) then                      ! there must be one and only one match
-           write(0,*)'ERROR: '//trim(oldpath)//' is ambiguous or does not exist'
-           stop
-        endif
-        oldpath = globs(1)     ! use file name that matches pattern
+          oldpath = globs(1)     ! use file name that matches pattern
+        endif                                                                  ! WITH INDEX FILE
       endif
     endif
 
