@@ -16,7 +16,7 @@
 ! * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
 ! * Boston, MA 02111-1307, USA.
 ! */
-#define VERSION '1.0_rc21 2019/01/22'
+#define VERSION '1.0_rc22 2019/05/14'
 #define AVG_MARKER '/'
 #define VAR_MARKER '%'
   module averages_common   ! tables and table management routines
@@ -37,6 +37,7 @@
       integer :: nsamples, sample                  ! number of samples collected, duration of sample
 !       integer :: npas_min, npas_max                ! lowest and highest time step collected
       integer :: ip1, ip2, ip3, dateo, deet        ! from field's standard file parameters
+      integer :: npas
       integer :: ig1, ig2, ig3, ig4                ! grid
       integer :: level2                            ! second level if 2 level data
       character(len=12) :: etiket                  ! from field's standard file parameters
@@ -147,6 +148,7 @@
       ptab(pg)%p(slot)%date_hi = 0
       ptab(pg)%p(slot)%sample = 0
       ptab(pg)%p(slot)%deet = -1
+      ptab(pg)%p(slot)%npas = -1
       ptab(pg)%p(slot)%ip1 = -1
       ptab(pg)%p(slot)%level2 = -1
       ptab(pg)%p(slot)%ip2 = -1
@@ -338,6 +340,7 @@
         p%date_hi = date_hi
         p%sample = sample
         p%deet = deet
+        p%npas = npas
         p%ip1 = ip1
         p%level2 = level2
         p%ip2 = ip2
@@ -904,20 +907,25 @@
         else
           deet = (p%date_hi - p%date_lo) / (p%nsamples - 1)
         endif
-	npas = nint(hours*3600/deet)
+        npas = nint(hours*3600/deet)
         r4 = ip3       ! force ip3 to new style coding
         call convip_plus( ip3, r4, 15, 2, string, .false. ) ! ip kind 15,  number of samples
         if( p%level2 > 0 ) then   ! 2 level data, put level2 in ip2 for output instead of hours since beginning of integration
           ip2 = p%level2
         else
-	  call difdatr(new_dateo,p%dateo,hours)   ! ip2 = hours from start of model run
-	  r4 = hours       ! force ip2 to new style coding
-	  call convip_plus( ip2, r4, 10, 2, string, .false. ) ! ip kind 10,  hours
+          call difdatr(new_dateo,p%dateo,hours)   ! ip2 = hours from start of model run
+          r4 = hours       ! force ip2 to new style coding
+          call convip_plus( ip2, r4, 10, 2, string, .false. ) ! ip kind 10,  hours
         endif
       endif
       p%typvar(2:2) = AVG_MARKER
       wtype = 5   ! E32
       if(p%ni > 16 .and. p%nj > 16) wtype = wtype + 128   ! activate E32 compression for averages
+      if(ensemble)then
+        new_dateo = p%dateo
+        deet      = p%deet
+        npas      = p%npas
+      endif
       call fstecr(z,z,-32,fstdmean, &
                   new_dateo,deet,npas,p%ni,p%nj,1,ip1,ip2,ip3,p%typvar,p%nomvar,p%etiket, &
                   p%grtyp,p%ig1,p%ig2,p%ig3,p%ig4,wtype,.false.)
@@ -926,7 +934,7 @@
         p%typvar(2:2) = VAR_MARKER
         call fstecr(p%stats(1,1,2),p%stats(1,1,2),-64,fstdvar, &
                     new_dateo,deet,npas,p%ni,p%nj,1,ip1,ip2,ip3,vartag,p%nomvar,p%etiket, &
-                    p%grtyp,p%ig1,p%ig2,p%ig3,p%ig4,5,.false.)
+                    p%grtyp,p%ig1,p%ig2,p%ig3,p%ig4,wtype,.false.)
       endif
 
       deallocate(z)
