@@ -365,7 +365,7 @@
       do j = 1 , nj
       do i = 1 , ni
          p%stats(i,j,1) = p%stats(i,j,1) + z(i,j)*weight               ! update sum
-         if(variance) p%stats(i,j,2) = p%stats(i,j,2) + z(i,j)*z(i,j)*weight  ! update sum of squares if necessary
+         if(variance) p%stats(i,j,2) = p%stats(i,j,2) + DBLE(z(i,j))*DBLE(z(i,j))*weight  ! update sum of squares if necessary
       enddo
       enddo
     end function process_entry
