@@ -19,6 +19,7 @@
 #define VERSION '1.0_rc22 2019/05/14'
 #define AVG_MARKER '/'
 #define VAR_MARKER '%'
+#define STD_MARKER '7'
   module averages_common   ! tables and table management routines
     use iso_c_binding
     implicit none
@@ -820,7 +821,6 @@
     real *8 :: avg, var
     real, dimension(:,:), pointer :: z
     integer :: deet, npas, ip1, ip2, ip3, datev
-    character(len=2) :: vartag
     real *8 :: hours, hours_min, hours_max, ov_sample
 !    real *8 :: hours2
     integer, dimension(14) :: date_array
@@ -851,8 +851,6 @@
 
     status = 0
     if(verbose > 2) print *,"INFO:",next+1," records will be written into mean/variance files"
-    vartag = 'VA'               ! typvar for variance/std deviation file
-    if(std_dev) vartag = 'ST'
     do i = 0 , next             ! loop over valid entries
       slot = iand(i,ENTRY_MASK) ! slot from index
       pg = ishft(i,PAGE_SHIFT)  ! page from index
@@ -932,8 +930,9 @@
       if(variance) then            ! use IEEE 64 bit format for variances
         call fst_data_length(8)    ! 64 bit format
         p%typvar(2:2) = VAR_MARKER
+        if(std_dev) p%typvar(2:2) = STD_MARKER
         call fstecr(p%stats(1,1,2),p%stats(1,1,2),-64,fstdvar, &
-                    new_dateo,deet,npas,p%ni,p%nj,1,ip1,ip2,ip3,vartag,p%nomvar,p%etiket, &
+                    new_dateo,deet,npas,p%ni,p%nj,1,ip1,ip2,ip3,p%typvar,p%nomvar,p%etiket, &
                     p%grtyp,p%ig1,p%ig2,p%ig3,p%ig4,wtype,.false.)
       endif
 
