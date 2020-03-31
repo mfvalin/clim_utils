@@ -1,5 +1,5 @@
 !/* 
-! * Copyright (C) 2017-2019  UQAM centre ESCER
+! * Copyright (C) 2017-2020  UQAM centre ESCER
 ! *
 ! * This software is free software; you can redistribute it and/or
 ! * modify it under the terms of the GNU Lesser General Public
@@ -16,7 +16,7 @@
 ! * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
 ! * Boston, MA 02111-1307, USA.
 ! */
-#define VERSION '1.0_rc22 2019/05/14'
+#define VERSION '1.0_rc24 2020/03/31'
 #define AVG_MARKER '/'
 #define VAR_MARKER '%'
 #define STD_MARKER '7'
@@ -73,6 +73,7 @@
     integer, save :: time_weight = 24      ! weight is in days, set to 1 for weight in hours
     logical, save :: strict = .false.      ! non strict mode by default
     logical, save :: ensemble = .false.    ! ensemble mode
+    logical, save :: strictsample = .false.  ! non strictsample mode by default (sample interval mismatches tolerated)
     logical, save :: select_etiket = .false. ! etiket 1s a significant item if .true.
 
     character(len=4), dimension(1024), save :: specials
@@ -85,16 +86,16 @@
       integer :: i, status
 
       if(n < 0 .or. n >= MAX_PAGES) then
-        print *,"FATAL: page number",n,' is invalid. it must be between 0 and',MAX_PAGES-1
+        print *,"ERROR: page number",n,' is invalid. it must be between 0 and',MAX_PAGES-1
         call f_exit(1)
       endif
       if(associated(ptab(n)%p)) then
-        print *,"FATAL: page number",n,' is already allocated'
+        print *,"ERROR: page number",n,' is already allocated'
         call f_exit(1)
       endif
       allocate(ptab(n)%p(0:PAGE_SIZE-1),STAT=status)  ! allocate page
       if(status .ne. 0) then
-        print *,"FATAL: page number",n,' cannot be allocated'
+        print *,"ERROR: page number",n,' cannot be allocated'
         call f_exit(1)
       endif
       do i = 0, PAGE_SIZE-1
@@ -134,7 +135,7 @@
 
       if(verbose > 4) print *,'DEBUG: allocated stats - slot, ni,nj =',ix,ni,nj
       if(status .ne. 0) then
-        print *,"FATAL: entry number",slot,'in page',pg,' cannot be allocated'
+        print *,"ERROR: entry number",slot,'in page',pg,' cannot be allocated'
         call f_exit(1)
       endif
 !     initialize entry to EMPTY but READY
@@ -177,7 +178,7 @@
       slot = mod(next,PAGE_SIZE)  ! slot number
       ix = create_page_entry(pg,slot,ni,nj)
       if(ix < 0) then
-        print *,"FATAL: error creating entry",slot,' in page',pg
+        print *,"ERROR: error creating entry",slot,' in page',pg
         call f_exit(1)
       endif
       return
@@ -258,7 +259,8 @@
       ix = -1
       level2 = -1  ! a priori, one level data
       call convip_plus( ip1, r1, it1, -1, string, .false. )    ! convert ip1
-      if(ip3 == 0 .and. ip2 < 1000000) then    ! special "old style coding" for time in hours
+!     if(ip3 == 0 .and. ip2 < 1000000) then    ! special "old style coding" for time in hours
+      if(ip2 < 1000000) then    ! special "old style coding" for time in hours
         it2 = 10
         r2 = ip2
       else
@@ -266,8 +268,13 @@
       endif
       call convip_plus( ip3, r3, it3, -1, string, .false. )    ! convert ip3
 
-      if( (it1 == it3) .and. (ip1 > 0) .and. (ip3 > 0) ) level2 = ip3   ! 2 level data
-      if( (it1 == it2) .and. (ip1 > 0) .and. (ip2 > 0) ) level2 = ip2   ! 2 level data
+!  2 level data DISALLOWED
+!       if( (it1 == it3) .and. (ip1 > 0) .and. (ip3 > 0) .and. (.not. weight_ip3) ) then
+!         level2 = ip3   ! 2 level data
+!       endif
+!       if( (it1 == it2) .and. (ip1 > 0) .and. (ip2 > 0) ) then
+!         level2 = ip2   ! 2 level data
+!       endif
 
       dnp = npas
       dnp = dnp * deet
@@ -276,6 +283,7 @@
       sample = 0  ! "instantaneous" sample
       if((it2 == 10) .and. (it3 == 10))then  ! both ip2 and ip3 are time tags
         sample = 3600*ABS(r2 - r3)           ! sample interval in seconds
+!         print *,'DEBUG: sample, r2, r3 =',sample,r2,r3,ip1,ip2,ip3
         if(verbose > 4) print *,'DEBUG: sample =',sample
       endif
       if(is_special .or. ensemble) then   !  special names or ensemble mode
@@ -319,8 +327,12 @@
         if(p%typvar(2:2) .eq. AVG_MARKER) p%typvar = trim(typvar)  ! force typvar into p%typvar if average
         if(p%typvar(1:1) .ne. typvar(1:1)) cycle               ! check first character of typvar
         if(sample .ne. p%sample .and. weight == 1.0) then
-           if(verbose > 1) print *,'WARNING: sample interval mismatch, got',sample,' expected',p%sample
-           if(strict) call f_exit(1)    ! abort if strict mode
+           if(strictsample) then
+             print *,'ERROR: sample interval mismatch, got',sample,' expected',p%sample,' name = '//trim(nomvar)
+             call f_exit(1)    ! abort if strictsample mode
+           endif
+           if(verbose > 1) print *,'WARNING: sample interval mismatch, got',sample,' expected',p%sample,' name = '//trim(nomvar)
+           p%sample = sample
         endif
         ix = i                      ! a matching entry has been found
         if(verbose > 4) print *,'DEBUG: found entry, previous samples',ix,p%nsamples
@@ -375,17 +387,19 @@
   subroutine print_usage(name)
     implicit none
     character(len=*) :: name
-    print *,'USAGE: '//trim(name)//' [-h|--help] [-version] [-newtags] [-strict] [-novar] [-stddev] [-tag nomvar] \'
+    print *,'USAGE: '//trim(name)//' [-h|--help] [-version] [-newtags] [-strict] [-strictsample] [-novar] [-stddev] [-tag nomvar] \'
     print *,'           [-npas0] [-dateo] [-mean mean_out] [-var var_out] [-weight ip3|time|hours|days|nnn] \'
     print *,'           [-ens] [-etiket] [-status path/to/status/file] [-test] [-q[q]] [-v[v][v]] [--|-f] \'
     print *,'           [mean_out] [var_out] in_1 ... in_n'
-    print *,'        var_out  MUST NOT be present if -novar or -var is used'
-    print *,'        mean_out MUST NOT be present if -mean is used'
-    print *,'        -var -novar are mutually exclusive and may not be used together'
+    print *,'        var_out(variances file)  MUST NOT be present if -novar or -var is used'
+    print *,'        mean_out(means file) MUST NOT be present if -mean is used'
+    print *,'        -var -novar are MUTUALLY EXCLUSIVE and may not be used together'
     print *,'        options are order independent but -- or -f MUST BE THE LAST ONE'
     print *,"        default special tag names = '>>  ', '^^  ', '!!  ', 'HY  '"
-    print *,'        the -tag option may be used than once to add to this list'
+    print *,'        the -tag option may be used more than once to add to this list'
     print *,'        etiket is ignored except if -etiket used on the command line'
+    print *,'        -strict: abort upon unrecognized option, existing mean/variance file, or missing data file'
+    print *,'        -strictsample: abort upon inconsistent sample interval or missing sample'
     print *,'        -ens activates the ensemble mode, averages/stds across files'
     print *,'example :'
     print *,"  "//trim(name)//" -status stat.dot -vv -mean mean.fst -var var.fst -tag HY -tag '>>' my_dir/dm*"
@@ -412,7 +426,7 @@
     use averages_common
     implicit none
     integer :: curarg
-    character (len=8) :: option
+    character (len=16) :: option
     character (len=2048) :: filename, progname, meanfile, varfile, statusfile
     integer :: arg_count, arg_len, status, i
     integer :: first_file
@@ -429,15 +443,17 @@
     curarg = 1                         ! current argument number
     first_file = 0                     ! argument number of first input file
     strict = .false.                   ! do not abort on error (default)
+    strictsample = .false.             ! do not abort on sample interval (default)
     test = .false.                     ! internal flag for development purposes
     arg_count = command_argument_count()
     call get_command_argument(0,progname,arg_len,status)  ! get program name
 
-    nspecials = 4
+    nspecials = 5
     specials(1) = ">>  "
     specials(2) = "^^  "
     specials(3) = "!!  "
     specials(4) = "HY  "
+    specials(5) = "^>  "
 
     if(arg_count < 1) then             ! no arguments, OUCH !!
       call print_usage(progname)
@@ -450,7 +466,7 @@
       if(verbose > 3) print *,"NOTE: option = '"//trim(option)//"'"
       curarg = curarg + 1
       if(status .ne. 0) then
-        print *,"FATAL: option is too long :'"//trim(option)//"..."//"'"
+        print *,"ERROR: option is too long :'"//trim(option)//"..."//"'"
         call f_exit(1)
       endif
 
@@ -464,6 +480,9 @@
       else if( option == '-strict' ) then   ! set strict mode
         strict = .true.                     ! abort on ERROR 
 
+      else if( option == '-strictsample' ) then   ! set strictsample mode
+        strictsample = .true.                     ! abort on ERROR 
+
       else if( option == '-etiket' ) then
         select_etiket = .true.
 
@@ -472,7 +491,7 @@
 
       else if( option == '-weight' ) then     ! -mean file_for_averages
         if(curarg > arg_count) then
-          print *,'FATAL: missing argument after -weight'
+          print *,'ERROR: missing argument after -weight'
           call print_usage(progname)
           call f_exit(1)
         endif
@@ -498,7 +517,7 @@
 
       else if( option == '-mean' ) then     ! -mean file_for_averages
         if(curarg > arg_count) then
-          print *,'FATAL: missing argument after -mean'
+          print *,'ERROR: missing argument after -mean'
           call print_usage(progname)
           call f_exit(1)
         endif
@@ -507,7 +526,7 @@
 
       else if( option == '-status' ) then     ! -mean path/to/status/file
         if(curarg > arg_count) then
-          print *,'FATAL: missing argument after -mean'
+          print *,'ERROR: missing argument after -mean'
           call print_usage(progname)
           call f_exit(1)
         endif
@@ -516,7 +535,7 @@
 
       else if( option == '-tag' ) then     ! -tag
         if(curarg > arg_count) then
-          print *,'FATAL: missing argument after -tag'
+          print *,'ERROR: missing argument after -tag'
           call print_usage(progname)
           call f_exit(1)
         endif
@@ -532,7 +551,7 @@
           call f_exit(1)
         endif
         if(curarg > arg_count) then
-          print *,'FATAL: missing argument after -var'
+          print *,'ERROR: missing argument after -var'
           call print_usage(progname)
           call f_exit(1)
         endif
@@ -582,7 +601,7 @@
         exit
 
       else
-        if(verbose > 1) print *,"WARNING: unrecognized option = '"//trim(option)//"'"
+        print *,"ERROR: unrecognized option = '"//trim(option)//"'"
         if(strict) call f_exit(1)    ! abort if strict mode
         cycle
       endif
@@ -632,16 +651,20 @@
     endif
 
     status = write_stats(meanfile,varfile)   ! first call just opens the files
+    if(status< 0) call f_exit(1)             ! file open error(s)
 
     do i = curarg, arg_count         ! loop over input files
       call get_command_argument(i,filename,arg_len,status)   ! get file name
       inquire(FILE=trim(filename),EXIST=file_exists)         ! check that it exists
       if(.not. file_exists)then
-        if(verbose > 0) print *,"ERROR: file '"//trim(filename)//"' not found"
+        print *,"WARNING: file '"//trim(filename)//"' not found"
         if(strict) call f_exit(1)   ! strict mode, error is fatal
       else
         if(verbose > 2) print *,"INFO: processing file '"//trim(filename)//"'"
         status = process_file(trim(filename))
+        if(status<0) then
+          print *,"ERROR: problem opening or processing file '"//trim(filename)//"'"
+        endif
         if(status<0 .and. strict) call f_exit(1)   ! strict mode, error is fatal
       endif
     enddo
@@ -678,8 +701,8 @@
       call fstfrm(fstdvar)   ! close variance/std deviation file
       call fclos(fstdvar)
     endif
-    if(missing .and. strict) then
-       print *,"FATAL: missing sample(s) for some variables"
+    if(missing .and. strictsample) then
+       print *,"ERROR: missing sample(s) for some variables"
       call f_exit(1)
     endif
     if( trim(statusfile) .ne. '/dev/null' ) call set_status(statusfile,'status="SUCCESS"')
@@ -705,6 +728,7 @@
     do while(key >= 0)                                  ! loop while valid records
       if(nk > 1)    cycle                               ! xy 2D records only
       status = process_record(key,ni,nj,nk)             ! process record
+      if(status == -1) return                           ! something went wrong
       key = fstsui(fstdin,ni,nj,nk)                     ! next record 
     enddo
     call fstfrm(fstdin)                                 ! close file
@@ -751,10 +775,12 @@
       if(status == -1) return                    ! ERROR
       if(nbits == 64) call fst_data_length(8)    ! if 64 bit data
       if(verbose > 4) print *,'DEBUG: special record - dateo', dateo
-      call fstecr(z,z,-nbits,fstdmean,dateo,deet,npas,ni,nj,nk,ip1,ip2,ip3,typvar,nomvar,etiket,grtyp,ig1,ig2,ig3,ig4,datyp,.false.)
+      call fstecr(z,z,-nbits,fstdmean,dateo,deet,npas,ni,nj,nk,ip1,ip2,ip3, &
+                  typvar,nomvar,etiket,grtyp,ig1,ig2,ig3,ig4,datyp,.false.)
       if(variance) then  ! if there is a variance file, write it there too
         if(nbits == 64) call fst_data_length(8)    ! 64 bit data
-        call fstecr(z,z,-nbits,fstdvar,dateo,deet,npas,ni,nj,nk,ip1,ip2,ip3,typvar,nomvar,etiket,grtyp,ig1,ig2,ig3,ig4,datyp,.false.)
+        call fstecr(z,z,-nbits,fstdvar,dateo,deet,npas,ni,nj,nk,ip1,ip2,ip3, &
+                    typvar,nomvar,etiket,grtyp,ig1,ig2,ig3,ig4,datyp,.false.)
       endif
       return
     endif   ! end of if special record
@@ -821,6 +847,7 @@
     real *8 :: avg, var
     real, dimension(:,:), pointer :: z
     integer :: deet, npas, ip1, ip2, ip3, datev
+    character(len=2) :: vartag
     real *8 :: hours, hours_min, hours_max, ov_sample
 !    real *8 :: hours2
     integer, dimension(14) :: date_array
@@ -833,17 +860,29 @@
     if(fstdmean == 0 .and. fstdvar == 0) then  ! first call just opens the files
 
       status = fnom(fstdmean,trim(filename),'STD+RND',0) ! open averages file
-      if(status <0) return
+      if(status <0) then
+        print *,"ERROR: open of mean output file '"//trim(filename)//"', unit =",fstdmean,' failed'
+        return
+      endif
       status = fstouv(fstdmean,'RND')
-      if(status <0) return
-      if(verbose > 2) print *,"INFO: opened mean output file '"//trim(filename)//"'"
+      if(status <0) then
+        print *,"ERROR: open of mean output file '"//trim(filename)//"', unit =",fstdmean,' failed'
+        return
+      endif
+      if(verbose > 2) print *,"INFO: opened mean output file '"//trim(filename)//"', unit =",fstdmean
 
       if(variance) then  ! only open variance file if it is required
         status = fnom(fstdvar,trim(varfile),'STD+RND',0)
-        if(status <0) return
+        if(status <0) then
+          print *,"ERROR: open of var output file '"//trim(varfile)//"', unit =",fstdvar,' failed'
+          return
+        endif
         status = fstouv(fstdvar,'RND')
-        if(status <0) return
-        if(verbose > 2) print *,"INFO: opened variance output file '"//trim(filename)//"'"
+        if(status <0) then
+          print *,"ERROR: open of var output file '"//trim(varfile)//"', unit =",fstdvar,' failed'
+          return
+        endif
+        if(verbose > 2) print *,"INFO: opened variance output file '"//trim(varfile)//"', unit =",fstdvar
       endif
 
       return
@@ -851,6 +890,8 @@
 
     status = 0
     if(verbose > 2) print *,"INFO:",next+1," records will be written into mean/variance files"
+    vartag = 'VA'               ! typvar for variance/std deviation file
+    if(std_dev) vartag = 'ST'
     do i = 0 , next             ! loop over valid entries
       slot = iand(i,ENTRY_MASK) ! slot from index
       pg = ishft(i,PAGE_SHIFT)  ! page from index
@@ -864,7 +905,10 @@
 100     format(A,I5,A5,A3,A13,A2,I10,L2,2I5,2I8)
       endif
       allocate(z(p%ni,p%nj),STAT=status)   ! allocate space for averages
-      if(status .ne. 0) return
+      if(status .ne. 0) then
+        ! add error message
+        return
+      endif
       ov_sample = 1.0
       ov_sample = ov_sample / p%nsamples
       do jj = 1 , p%nj
@@ -933,7 +977,7 @@
         if(std_dev) p%typvar(2:2) = STD_MARKER
         call fstecr(p%stats(1,1,2),p%stats(1,1,2),-64,fstdvar, &
                     new_dateo,deet,npas,p%ni,p%nj,1,ip1,ip2,ip3,p%typvar,p%nomvar,p%etiket, &
-                    p%grtyp,p%ig1,p%ig2,p%ig3,p%ig4,wtype,.false.)
+                    p%grtyp,p%ig1,p%ig2,p%ig3,p%ig4,5,.false.)
       endif
 
       deallocate(z)
