@@ -150,9 +150,9 @@ program print_date_range
   real *8 :: delta, diff
   integer :: status
   character(len=128) :: date1, date2, interval, name, sym
-  character(len=32) :: arg1, arg2, key
+  character(len=32) :: arg1, arg2, arg2a, arg2b, period, key
   character(len=4096) :: oldpath, newpath, dirpath, option, oldmonth, month_name, val, indexfile, targetname
-  character(len=1024) :: set_pattern
+  character(len=1024) :: set_pattern, tail_pattern
   character(C_CHAR), dimension(4096) :: oldp, newp, dirp
   character(len=4096) :: nest_rept, set_name, anal, statusfile, name_to_index
   integer(C_INT) :: mode
@@ -160,10 +160,10 @@ program print_date_range
   integer :: cur_arg, nargs, arg_len, ntimes
   integer :: month_is_file = 0
   integer :: index_file_found = 0
-  character(len=128) :: version = 'version 1.0.11 2019/04/24'
+  character(len=128) :: version = 'version 1.0.12 2020/05/21'
   integer, parameter :: MAXGLOB=2
   character(len=4096), dimension(MAXGLOB) :: globs
-  integer :: nglob, arg2_nc, errors, iun, keyrec, ni,nj,nk, datev
+  integer :: nglob, arg2_nc, arg2_min_nc, errors, iun, keyrec, ni,nj,nk, datev
   integer :: dateo,deet,npas,nbits,datyp,ip1,ip2,ip3,ig1,ig2,ig3,ig4
   integer :: swa,lng,dltf,ubc,extra1,extra2,extra3
   real*8 :: hours, file_span
@@ -173,13 +173,17 @@ program print_date_range
   character(len=12) :: etiket
   character(len=16) :: template
   integer, external :: fnom, fstouv, fstinf, fstsui
+  integer :: verbose
 
   CALL get_command_argument(0, name)   ! program name as seen by OS
   statusfile = '/dev/null'
 
+  verbose = 1
   mode = o'0777'  ! to be "anded" with user's umask for mkdir
   oldmonth = ' '
   set_pattern = '*'  ! default filename pattern for set name "globbing"
+  tail_pattern = ' ' ! default tail wildcard
+  period = '.'       ! set to ' ' if no period between YYYYMMDD and hhmmss in file names
 
   errors = 0
   iun = 0
@@ -197,7 +201,7 @@ program print_date_range
   first_in_month = .true.
   sub_daily = .false.
   indexmode = .false.
-  template = 'YYYYMM????????'
+  template = 'YYYYMM??.??????'
   file_span = 24.00   ! default is daily files if not monthly
 
   do while(cur_arg <= nargs)      ! process command line options
@@ -221,6 +225,9 @@ program print_date_range
     else if(trim(key)  == '--nhours=' ) then           ! hours
       interval = val
       read(interval,*,err=777)delta                      ! interval in hours
+    else if(trim(key)  == '--v=' ) then           ! hours
+      interval = val
+      read(interval,*,err=777)verbose                      ! interval in hours
     else if(trim(key) == '--nseconds=' ) then         ! seconds
       interval = val
       read(interval,*,err=777)delta                      ! interval in seconds
@@ -252,6 +259,8 @@ program print_date_range
       set_name = val
     else if(trim(key) == '--set_pattern=' ) then      ! disambiguation pattern for file "globbing", default is '*'
       set_pattern = val
+    else if(trim(key) == '--tail=' ) then             ! tail wildcard for file "globbing", default is ' ' (none)
+      tail_pattern = val
     else if(trim(key)  == '--year=' ) then             ! calendar option (optional)
       call NewDate_Options(trim(option(3:4096)),'set')       ! set calendar option
       write(0,*)'INFO: using calendar option '//trim(option(3:4096))
@@ -273,6 +282,7 @@ program print_date_range
     write(0,*)errors,' errors in argument parsing'
     goto 777
   endif
+  write(0,*)'INFO: using set pattern = "'//trim(set_pattern)//'", tail pattern ="'//trim(tail_pattern)//'"'
   if( trim(statusfile) .ne. '/dev/null' ) call set_status(statusfile,'status="ABORT"')
   if(indexmode) then  ! file indexing mode
     status = fnom(iun,trim(name_to_index),'STD+RND+OLD+R/O',0)   ! connect file)
@@ -349,7 +359,10 @@ program print_date_range
     endif
 !     print 102,p1,'.',p2/100,p3                        ! print itname
     write(arg1,'(I8.8,A1,I6.6)')p1,'.',p2/100          ! YYYYMMDD.hhmmss
-    write(arg2,'(2I8.8)')p3,p2                         ! YYYYMMDDhhmmss00
+!     write(arg2,'(2I8.8)')p3,p2                         ! YYYYMMDDhhmmss00
+!     write(arg2a,'(I8.8)')p3                            ! YYYYMMDD
+!     write(arg2b,'(I8.8)')p2                            ! hhmmss00
+     write(arg2,'(I8.8,A1,I8.8)')p3,'.',p2             ! YYYYMMDD.hhmmss00
 !     print *,trim(arg1),' ',trim(arg2)
     write(dirpath,'(A)')'VALID_'//trim(arg1)           ! VALID_YYYYMMDD.hhmmss
     dirp = transfer(trim(dirpath)//achar(0),dirp)      ! C null terminated string from Fortran string
@@ -397,39 +410,47 @@ program print_date_range
           write(0,*)'INFO: target is',dt1,dt2," '" // trim(oldpath) // "'"
         else                                                                   ! NO INDEX FILE FOUND
           if(first_in_month) then  ! see if name ends in YYYYMMDDhh, if so use 10 chars from arg2
-            arg2_nc = 8
-            if(sub_daily) arg2_nc = 10    ! sub_daily mode, hh MUST be present
-            do while(arg2_nc <= 14)
-              oldpath = trim(month_name) // '/' // trim(set_pattern) // arg2(1:arg2_nc)   ! look for 'pattern'YYYYMMDD[hh][mm][ss] file name
-  !              write(0,*)'DEBUG: trying ' // trim(oldpath)
+            arg2_nc = 8         ! 
+            if(sub_daily) arg2_nc = 15      ! sub_daily mode, hh MUST be present, maximum length is 15 (15/13/11)
+            arg2_min_nc = 8
+            if(sub_daily) arg2_min_nc = 11  ! sub_daily mode, hh MUST be present, minimum length is 11
+            do while(arg2_nc >= arg2_min_nc)       ! try longer match first (because of tail wildcard)
+              ! look for 'pattern'YYYYMMDD.hh[mm][ss] file name (sub daily)
+              ! look for 'pattern'YYYYMMDD            file name (daily or longer)
+              oldpath = trim(month_name) // '/' // trim(set_pattern) // arg2(1:arg2_nc)   
+              oldpath = trim(oldpath)//trim(tail_pattern)      ! add TAIL wildcard to oldpath
+              if(verbose > 2) write(0,*)'DEBUG: trying ' // trim(oldpath)
               status = clib_glob(globs,nglob,trim(oldpath),MAXGLOB)            ! find file name match(es)
               if(status == CLIB_OK .and. nglob == 1) exit                      ! found unique match , exit loop
-              arg2_nc = arg2_nc + 2                                            ! try longer match
+              arg2_nc = arg2_nc - 2                                            ! try shorter match for next match
               if( .not. sub_daily) then
                 write(0,*)'ERROR: --sub_daily flag is absent and no daily file has been found'
                 write(0,*)'      '//trim(oldpath)
                 stop
               endif
             enddo
-            write(0,*)'INFO: using boundary files pattern '//trim(oldmonth)//'/'//trim(set_pattern)//arg2(1:6)//template(7:arg2_nc)
-            if(arg2_nc > 14) then  ! OOPS
+            if(verbose > 0)  write(0,*)'INFO: using boundary files pattern '//trim(oldmonth)// &
+                                       '/'//trim(set_pattern)//arg2(1:6)//template(7:arg2_nc)//trim(tail_pattern)
+            if(arg2_nc > 15) then  ! OOPS
               write(0,*)'ERROR: no file was found matching ' // trim(oldpath)
               write(0,*)'       date = '//arg2(1:4)//'/'//arg2(5:6)//'/'//arg2(7:8)//'-'//arg2(9:10)//':'//arg2(11:12)//':'//arg2(13:14)
               stop
             endif
           endif
-          oldpath = trim(month_name) // '/' // trim(set_pattern) // arg2(1:arg2_nc) ! look for 'pattern'YYYYMMDD[hh[mmdd]]  ( default pattern is * )
+          ! look for 'pattern'YYYYMMDD[hh[mmdd]]  ( default pattern is * )
+          oldpath = trim(month_name) // '/' // trim(set_pattern) // arg2(1:arg2_nc) 
+          oldpath = trim(oldpath)//trim(tail_pattern)      ! add TAIL wildcard to oldpath
           globs(1) = 'UnknownFile'
-  !         write(0,*)'INFO: looking for '//trim(oldpath)
+          if(verbose > 1) write(0,*)'INFO: looking for '//trim(oldpath)
           status = clib_glob(globs,nglob,trim(oldpath),MAXGLOB)            ! find file name match(es)
           if(status .ne. CLIB_OK .or. nglob > 1) then                      ! there must be one and only one match
             write(0,*)'ERROR: '//trim(oldpath)//' is ambiguous or does not exist'
             stop
           endif
           oldpath = globs(1)     ! use file name that matches pattern
-        endif                                                                  ! WITH INDEX FILE
-      endif
-    endif
+        endif ! (1 == index_file_found )
+      endif   ! (month_is_file == 1)
+    endif     ! (use_anal)
 
     oldp = transfer(trim(oldpath)//achar(0),oldp)
     newpath = 'VALID_' // trim(arg1) // '/GEM_input_file_0001'
@@ -456,7 +477,7 @@ program print_date_range
 777 continue
   write(0,*)'USAGE: '//trim(name)//' [-h|--help] --start_date= --end_date= --nhours= --nseconds= --set_name= \'
   write(0,*)'        [--start_sym=] [--status=statusfile] [--sub-daily] [--start_anal=] --pilot_data= \'
-  write(0,*)'        [--set_pattern] [--year=gregorian|360_day|365_day] [--index=] [--version]'
+  write(0,*)'        [--set_pattern] [--tail=] [--year=gregorian|360_day|365_day] [--index=] [--version] [--v=]'
   write(0,*)''
   write(0,*)'       '//version
   write(0,*)''
@@ -470,10 +491,12 @@ program print_date_range
   write(0,*)'       pilot_data : directory containing the boundary condition files'
   write(0,*)'       set_name   : dataset/experiment name'
   write(0,*)'       set_pattern: disambiguation pattern for file "globbing"'
+  write(0,*)'       tail       : tail wildcard pattern for file "globbing"'
   write(0,*)'       year=...   : (optional) argument ,  calendar to be used (gregorian by default)'
   write(0,*)'       sub_daily  : driving data files contain less than a day of data (hh/hhmm/hhmmss in file names)'
   write(0,*)'       index      : filename to  index (looking for record P0)'
   write(0,*)'       version    : print version and quit'
+  write(0,*)'       v          : verbosity level (default=1)'
   write(0,*)'       arguments between [] are optional'
   write(0,*)'       only one of --nhours/--nseconds is necessary'
   write(0,*)'       for date parameters, the trailing 0s in the HHMMSS part may be omitted'
@@ -484,14 +507,14 @@ subroutine set_status(filename,message)
   implicit none
   character (len=*), intent(IN) :: filename,message
   integer :: iun, status
-  integer, external :: fnom
+  integer, external :: fnom, fclos
 
   iun = 0
   status = fnom(iun,trim(filename),'FTN+FMT',0)
   if(iun > 0) then
     write(iun,1) trim(message)
 1     format(A)
-    call fclos(iun)
+    status = fclos(iun)
   endif
   return
 end subroutine set_status
