@@ -150,7 +150,7 @@ program print_date_range
   real *8 :: delta, diff
   integer :: status
   character(len=128) :: date1, date2, interval, name, sym
-  character(len=32) :: arg1, arg2, period, key
+  character(len=32) :: arg1, arg2, arg3, period, key
   character(len=4096) :: oldpath, newpath, dirpath, option, oldmonth, month_name, val, indexfile, targetname, targetdir
   character(len=1024) :: set_pattern, tail_pattern
   character(C_CHAR), dimension(4096) :: oldp, newp, dirp
@@ -160,7 +160,7 @@ program print_date_range
   integer :: cur_arg, nargs, arg_len, ntimes
   integer :: month_is_file = 0
   integer :: index_file_found = 0
-  character(len=128) :: version = 'version 1.0.13 2020/06/01'
+  character(len=128) :: version = 'version 1.0.14 2020/06/01'
   integer, parameter :: MAXGLOB=2
   character(len=4096), dimension(MAXGLOB) :: globs
   integer :: nglob, arg2_nc, arg2_min_nc, errors, iun, keyrec, ni,nj,nk, datev
@@ -414,6 +414,13 @@ program print_date_range
 
     write(arg2,'(I8.8,A1,I8.8)')p3,'.',p2              ! YYYYMMDD.hhmmss00
     month_name = trim(nest_rept) // '/' // trim(set_name) // '_' // arg2(1:6)   ! month part can be a file or a directory
+    if(p2 == 0 .and. mod(p3,100) == 1) then            ! 1st day of the month, 00:00:00, file will be in previous month directory
+      status = newdate(stamp0,p3,p2,3)
+      call incdatr(stamp3,stamp0,-1.0_8)               ! one hour before should be in previous month
+      status = newdate(stamp3,p3,p2,-3)
+      write(arg3,'(I8.8,A1,I8.8)')p3,'.',p2              ! YYYYMMDD.hhmmss00
+      month_name = trim(nest_rept) // '/' // trim(set_name) // '_' // arg3(1:6)
+    endif
     if(trim(oldmonth) .ne. month_name) then      ! new month name
       oldmonth = month_name
       first_in_month = .true.
@@ -473,7 +480,7 @@ program print_date_range
 #else
 	    oldpath = trim(month_name) // '/' // trim(set_pattern) // arg2(1:arg2_nc)   
 	    oldpath = trim(oldpath)//trim(tail_pattern)      ! add TAIL wildcard to oldpath
-	    if(verbose > 2) write(0,*)'DEBUG: trying ' // trim(oldpath)
+	    if(verbose > 2) write(0,*)'DEBUG: trying for ' // trim(oldpath)
 	    status = clib_glob(globs,nglob,trim(oldpath),MAXGLOB)            ! find file name match(es)
 #endif
             if(verbose > 0)  write(0,*)'INFO: using boundary files pattern '//trim(oldmonth)// &
@@ -503,7 +510,6 @@ program print_date_range
         endif ! (1 == index_file_found )
       endif   ! (month_is_file == 1)
     endif     ! (use_anal)
-
     oldp = transfer(trim(oldpath)//achar(0),oldp)
     newpath = 'VALID_' // trim(arg1) // '/GEM_input_file_0001'
     newp = transfer(trim(newpath)//achar(0),newp)     ! C null terminated string from Fortran string
