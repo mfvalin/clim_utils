@@ -144,14 +144,14 @@ program print_date_range
 #include "clib_interface.cdk"
 #define CLIB_OK 1
   integer, external :: newdate
-  integer :: stamp, p1, p2, stamp1, stamp2, p3, p4, stamp3
+  integer :: stamp, p1, p2, stamp1, stamp2, p3, p4, stamp3, stamp0, targetstamp
   integer :: dt1, dt2
   integer, dimension(2) :: printable1, printable2, printable3
   real *8 :: delta, diff
   integer :: status
   character(len=128) :: date1, date2, interval, name, sym
-  character(len=32) :: arg1, arg2, arg2a, arg2b, period, key
-  character(len=4096) :: oldpath, newpath, dirpath, option, oldmonth, month_name, val, indexfile, targetname
+  character(len=32) :: arg1, arg2, period, key
+  character(len=4096) :: oldpath, newpath, dirpath, option, oldmonth, month_name, val, indexfile, targetname, targetdir
   character(len=1024) :: set_pattern, tail_pattern
   character(C_CHAR), dimension(4096) :: oldp, newp, dirp
   character(len=4096) :: nest_rept, set_name, anal, statusfile, name_to_index
@@ -160,7 +160,7 @@ program print_date_range
   integer :: cur_arg, nargs, arg_len, ntimes
   integer :: month_is_file = 0
   integer :: index_file_found = 0
-  character(len=128) :: version = 'version 1.0.12 2020/05/21'
+  character(len=128) :: version = 'version 1.0.13 2020/06/01'
   integer, parameter :: MAXGLOB=2
   character(len=4096), dimension(MAXGLOB) :: globs
   integer :: nglob, arg2_nc, arg2_min_nc, errors, iun, keyrec, ni,nj,nk, datev
@@ -174,6 +174,7 @@ program print_date_range
   character(len=16) :: template
   integer, external :: fnom, fstouv, fstinf, fstsui
   integer :: verbose
+  integer :: span, name_length, hh, mm, ss
 
   CALL get_command_argument(0, name)   ! program name as seen by OS
   statusfile = '/dev/null'
@@ -184,6 +185,9 @@ program print_date_range
   set_pattern = '*'  ! default filename pattern for set name "globbing"
   tail_pattern = ' ' ! default tail wildcard
   period = '.'       ! set to ' ' if no period between YYYYMMDD and hhmmss in file names
+  name_length = 8    ! YYYYMMDD  filenames
+  targetdir = ''
+
 
   errors = 0
   iun = 0
@@ -203,55 +207,69 @@ program print_date_range
   indexmode = .false.
   template = 'YYYYMM??.??????'
   file_span = 24.00   ! default is daily files if not monthly
+  span = 0            ! set default to error. if sub daily, span is mandatory
 
   do while(cur_arg <= nargs)      ! process command line options
     call get_command_argument(cur_arg,option,arg_len,status)
     call optkey(key,option)
     call optval(val,option)
-    if(trim(key) == '--start_date=' ) then       ! YYYYMMDD.HHMMSS or YYYYMMDDHHMMSS
+    if(trim(key) == '--start_date=' ) then              ! YYYYMMDD.HHMMSS or YYYYMMDDHHMMSS
       date1 = trim(val)//'000000'
       if(date1(9:9) == '.') then
         read(date1,11,err=777)printable1(1),printable1(2)  ! start date in YYYYMMDD.HHMMSS format
       else
         read(date1,12,err=777)printable1(1),printable1(2)  ! start date in YYYYMMDDHHMMSS format
       endif
-    else if(trim(key) == '--end_date=' ) then         ! YYYYMMDD.HHMMSS or YYYYMMDDHHMMSS
+    else if(trim(key) == '--end_date=' ) then           ! YYYYMMDD.HHMMSS or YYYYMMDDHHMMSS
       date2 = trim(val)//'000000'
       if(date2(9:9) == '.') then
         read(date2,11,err=777)printable2(1),printable2(2)  ! end date in YYYYMMDD.HHMMSS format
       else
         read(date2,12,err=777)printable2(1),printable2(2)  ! end date in YYYYMMDDHHMMSS format
       endif
-    else if(trim(key)  == '--nhours=' ) then           ! hours
+    else if(trim(key)  == '--nhours=' ) then            ! hours
       interval = val
-      read(interval,*,err=777)delta                      ! interval in hours
-    else if(trim(key)  == '--v=' ) then           ! hours
+      read(interval,*,err=777)delta                     ! interval in hours
+    else if(trim(key)  == '--span=' ) then              ! hours
       interval = val
-      read(interval,*,err=777)verbose                      ! interval in hours
-    else if(trim(key) == '--nseconds=' ) then         ! seconds
+      read(interval,*,err=777)span                      ! span in seconds
+      file_span = span / 3600.0_8                       ! file span in hours
+    else if(trim(key)  == '--v=' ) then                 ! verbosity
       interval = val
-      read(interval,*,err=777)delta                      ! interval in seconds
-      delta = delta/3600.0                               ! interval in hours
-    else if(trim(key) == '--start_sym=' ) then        ! YYYYMMDD.HHMMSS or YYYYMMDDHHMMSS
+      read(interval,*,err=777)verbose                   ! verbosity level
+    else if(trim(key) == '--nseconds=' ) then           ! seconds
+      interval = val
+      read(interval,*,err=777)delta                     ! interval in seconds
+      delta = delta/3600.0                              ! interval in hours
+    else if(trim(key) == '--start_sym=' ) then          ! YYYYMMDD.HHMMSS or YYYYMMDDHHMMSS
       sym = trim(val)//'000000'
       if(sym(9:9) == '.') then
-        read(sym,11,err=777)printable3(1),printable3(2)  ! start of simulation in YYYYMMDD.HHMMSS format
+        read(sym,11,err=777)printable3(1),printable3(2) ! start of simulation in YYYYMMDD.HHMMSS format
       else
-        read(sym,12,err=777)printable3(1),printable3(2)  ! start of simulation in YYYYMMDDHHMMSS format
+        read(sym,12,err=777)printable3(1),printable3(2) ! start of simulation in YYYYMMDDHHMMSS format
       endif
-    else if(trim(key) == '--sub_daily' ) then        ! sub daily time resolution for driving data files
+    else if(trim(key) == '--sub_daily=' ) then           ! sub daily time resolution for driving data files
       sub_daily = .true.
-      file_span = 1.0                                ! default for sub daily is hourly
-      if(val(1:1) .ne. ' ') then
-        if(val(1:1) == 'm' .or. val(1:1) == 'M') file_span = file_span / 60.0_8     ! minutely files
-        if(val(1:1) == 's' .or. val(1:1) == 'S') file_span = file_span / 3600.0_8   ! secondly files
-      endif
+      select case (val(1:1))
+      case(' ','h','H')
+!         if(file_span > 1.0) file_span = 1.0_8
+        name_length = name_length + 3     ! hourly file names   YYYYMMDD.HH
+      case('m','M')
+!         if(file_span > 1.0) file_span = 1.0_8 / 60.0_8
+        name_length = name_length + 5     ! minutely file names YYYYMMDD.HHMM
+      case('s','S')
+!         if(file_span > 1.0) file_span = 1.0_8 / 3600.0_8
+        name_length = name_length + 7     ! secondly file names YYYYMMDD.HHMMSS
+      case DEFAULT
+        file_span = 0.0                   ! ERROR
+        errors = errors + 1
+      end select
     else if(trim(key) == '--start_anal=' ) then       ! initial analysis (only necessary if start_sym == start_date)
       anal = val
-    else if(trim(key) == '--index=' ) then       ! filename to index (look for P0)
+    else if(trim(key) == '--index=' ) then            ! filename to index (look for P0)
       name_to_index = val
       indexmode = .true.
-    else if(trim(key) == '--status=' ) then       ! initial analysis (only necessary if start_sym == start_date)
+    else if(trim(key) == '--status=' ) then           ! initial analysis (only necessary if start_sym == start_date)
       statusfile = val
     else if(trim(key) == '--pilot_data=' ) then       ! directory for boundary conditions
       nest_rept = val
@@ -261,15 +279,15 @@ program print_date_range
       set_pattern = val
     else if(trim(key) == '--tail=' ) then             ! tail wildcard for file "globbing", default is ' ' (none)
       tail_pattern = val
-    else if(trim(key)  == '--year=' ) then             ! calendar option (optional)
+    else if(trim(key)  == '--year=' ) then            ! calendar option (optional)
       call NewDate_Options(trim(option(3:4096)),'set')       ! set calendar option
       write(0,*)'INFO: using calendar option '//trim(option(3:4096))
-    else if(trim(key)  == '--version' ) then              ! version option
+    else if(trim(key)  == '--version' ) then          ! version option
       write(0,*)version
       stop
-    else if(trim(key)  == '--help' ) then              ! help option
+    else if(trim(key)  == '--help' ) then             ! help option
       goto 777
-    else if(trim(key)  == '-h' ) then                  ! help option
+    else if(trim(key)  == '-h' ) then                 ! help option
       goto 777
     else 
        write(0,*)"ERROR: unrecognized argument '"//trim(option)//"'"
@@ -278,6 +296,10 @@ program print_date_range
     endif
     cur_arg = cur_arg + 1
   enddo
+  if(sub_daily .and. span == 0) then
+    write(0,*)"ERROR: --span= is mandatory in sub daily mode"
+    errors = errors + 1
+  endif
   if(errors > 0) then
     write(0,*)errors,' errors in argument parsing'
     goto 777
@@ -350,24 +372,39 @@ program print_date_range
 
   ntimes = 0
   do while(diff >= 0)                                 ! end date - next date
-    status = newdate(stamp1,p1,p2,-3)                 ! convert to printable
+    status = newdate(stamp1,p1,p2,-3)                 ! convert to printable YYYYMMDD and hhmmss00 integers
+    ! create name for directory VALID_.....
+    write(arg1,'(I8.8,A1,I6.6)')p1,'.',p2/100         ! YYYYMMDD.hhmmss
+    write(dirpath,'(A)')'VALID_'//trim(arg1)          ! VALID_YYYYMMDD.hhmmss (directory name)
     status = newdate(stamp1,dt1,dt2,-3)
     p3 = p1                                           ! YYYYMMDD
+    stamp3 = stamp1
     if(p2 == 0 .and. (.not. use_anal) .and. (.not. sub_daily)) then   ! hhmmss = 0, use previous day, except if use_anal or sub_daily
-      call incdatr(stamp3,stamp1,-file_span)          ! subtract file contents interval
-      status = newdate(stamp3,p3,p4,-3)
+      call incdatr(stamp3,stamp1,-file_span)          ! subtract file span from stamp1 (one day)
+      status = newdate(stamp3,p3,p4,-3)               ! fix p3
     endif
-!     print 102,p1,'.',p2/100,p3                        ! print itname
-    write(arg1,'(I8.8,A1,I6.6)')p1,'.',p2/100          ! YYYYMMDD.hhmmss
-!     write(arg2,'(2I8.8)')p3,p2                         ! YYYYMMDDhhmmss00
-!     write(arg2a,'(I8.8)')p3                            ! YYYYMMDD
-!     write(arg2b,'(I8.8)')p2                            ! hhmmss00
-     write(arg2,'(I8.8,A1,I8.8)')p3,'.',p2             ! YYYYMMDD.hhmmss00
-!     print *,trim(arg1),' ',trim(arg2)
-    write(dirpath,'(A)')'VALID_'//trim(arg1)           ! VALID_YYYYMMDD.hhmmss
-    dirp = transfer(trim(dirpath)//achar(0),dirp)      ! C null terminated string from Fortran string
-    status = f_mkdir( dirp, mode )                     ! directory containing boundary files for this time interval
+    ! find associated file name (round up to file span)
+    if(sub_daily) then
+      hh = p2 / 1000000
+      mm = mod(p2 / 10000 , 100)
+      ss = mod(p2 / 100 , 100)
+      ss = ss + mm * 60 + hh * 3600
+      if(mod(ss, span) .ne. 0) ss = ss - mod(ss, span) + span ! top of the span interval
+      status = newdate(stamp0,p1,0,3)                    ! convert from printable, start of day
+      call incdatr(stamp3,stamp0,ss / 3600.0_8)            ! add hours to go to top of interval
+      status = newdate(stamp3,p3,p2,-3)                  ! convert to printable
+    endif
+    if(targetstamp .ne. stamp3) then                     ! new target date, create directory
+      dirp = transfer(trim(dirpath)//achar(0),dirp)      ! C null terminated string from Fortran string
+      status = f_mkdir( dirp, mode )                     ! directory containing boundary files for this time interval
+      targetstamp = stamp3
+      targetdir = dirpath
+    else                                                 ! target date already done, link to directory
+      status = f_symlink( dirp, trim(dirpath)//achar(0) )
+      goto 665                                           ! job done, next date
+    endif
 
+    ! hardlink content to VALID_..../content
     oldpath = 'content'
     oldp = transfer(trim(oldpath)//achar(0),oldp)      ! C null terminated string from Fortran string
     newpath = trim(dirpath)//'/content'                ! content file in directory created above
@@ -375,6 +412,7 @@ program print_date_range
     status = f_unlink( newp )                          ! in case file/link named ....../content already exists
     status = f_link( oldp, newp )                      ! hard link to file named 'content' in upper directory
 
+    write(arg2,'(I8.8,A1,I8.8)')p3,'.',p2              ! YYYYMMDD.hhmmss00
     month_name = trim(nest_rept) // '/' // trim(set_name) // '_' // arg2(1:6)   ! month part can be a file or a directory
     if(trim(oldmonth) .ne. month_name) then      ! new month name
       oldmonth = month_name
@@ -410,10 +448,13 @@ program print_date_range
           write(0,*)'INFO: target is',dt1,dt2," '" // trim(oldpath) // "'"
         else                                                                   ! NO INDEX FILE FOUND
           if(first_in_month) then  ! see if name ends in YYYYMMDDhh, if so use 10 chars from arg2
-            arg2_nc = 8         ! 
-            if(sub_daily) arg2_nc = 15      ! sub_daily mode, hh MUST be present, maximum length is 15 (15/13/11)
-            arg2_min_nc = 8
-            if(sub_daily) arg2_min_nc = 11  ! sub_daily mode, hh MUST be present, minimum length is 11
+!             arg2_nc = 8         ! 
+!             if(sub_daily) arg2_nc = 15      ! sub_daily mode, hh MUST be present, maximum length is 15 (15/13/11)
+!             arg2_min_nc = 8
+!             if(sub_daily) arg2_min_nc = 11  ! sub_daily mode, hh MUST be present, minimum length is 11
+            arg2_nc     = name_length
+#if defined(OLD_CODE)
+            arg2_min_nc = name_length
             do while(arg2_nc >= arg2_min_nc)       ! try longer match first (because of tail wildcard)
               ! look for 'pattern'YYYYMMDD.hh[mm][ss] file name (sub daily)
               ! look for 'pattern'YYYYMMDD            file name (daily or longer)
@@ -429,10 +470,21 @@ program print_date_range
                 stop
               endif
             enddo
+#else
+	    oldpath = trim(month_name) // '/' // trim(set_pattern) // arg2(1:arg2_nc)   
+	    oldpath = trim(oldpath)//trim(tail_pattern)      ! add TAIL wildcard to oldpath
+	    if(verbose > 2) write(0,*)'DEBUG: trying ' // trim(oldpath)
+	    status = clib_glob(globs,nglob,trim(oldpath),MAXGLOB)            ! find file name match(es)
+#endif
             if(verbose > 0)  write(0,*)'INFO: using boundary files pattern '//trim(oldmonth)// &
                                        '/'//trim(set_pattern)//arg2(1:6)//template(7:arg2_nc)//trim(tail_pattern)
+#if defined(OLD_CODE)
             if(arg2_nc > 15) then  ! OOPS
               write(0,*)'ERROR: no file was found matching ' // trim(oldpath)
+#else
+            if(status .ne. CLIB_OK .or. nglob > 1) then                      ! there must be one and only one match
+	      write(0,*)'ERROR: '//trim(oldpath)//' is ambiguous or does not exist'
+#endif
               write(0,*)'       date = '//arg2(1:4)//'/'//arg2(5:6)//'/'//arg2(7:8)//'-'//arg2(9:10)//':'//arg2(11:12)//':'//arg2(13:14)
               stop
             endif
@@ -458,6 +510,7 @@ program print_date_range
     status = f_unlink( newp )                         ! in case ....../GEM_input_file_0001 already exists
     status = f_symlink( oldp, newp )                  ! soft link to initial/boundary conditions file
 
+665 continue
     call incdatr(stamp,stamp1,delta)                  ! increment next date
     stamp1 = stamp
     call difdatr(stamp2,stamp1,diff)                  ! end date - next date
@@ -476,7 +529,7 @@ program print_date_range
 12  format(I8,I6)
 777 continue
   write(0,*)'USAGE: '//trim(name)//' [-h|--help] --start_date= --end_date= --nhours= --nseconds= --set_name= \'
-  write(0,*)'        [--start_sym=] [--status=statusfile] [--sub-daily] [--start_anal=] --pilot_data= \'
+  write(0,*)'        [--start_sym=] [--status=statusfile] [--sub-daily=h|m|s] [--start_anal=] --pilot_data= [--span=] \'
   write(0,*)'        [--set_pattern] [--tail=] [--year=gregorian|360_day|365_day] [--index=] [--version] [--v=]'
   write(0,*)''
   write(0,*)'       '//version
@@ -486,6 +539,7 @@ program print_date_range
   write(0,*)'       end_date   : YYYYMMDD.HHMMSS or YYYYMMDDHHMMSS , end of this simulation slice'
   write(0,*)'       nseconds   : interval in seconds between boundary condition files'
   write(0,*)'       nhours     : interval in hours between boundary condition files'
+  write(0,*)'       span       : time span covered in boundary condition files (seconds)'
   write(0,*)'       start_sym  : YYYYMMDD.HHMMSS or YYYYMMDDHHMMSS , start of entire simulation'
   write(0,*)'       start_anal : initial conditions (only used if start_date == start_sym)'
   write(0,*)'       pilot_data : directory containing the boundary condition files'
