@@ -160,7 +160,7 @@ program print_date_range
   integer :: cur_arg, nargs, arg_len, ntimes
   integer :: month_is_file = 0
   integer :: index_file_found = 0
-  character(len=128) :: version = 'version 1.0.15 2020/06/02'
+  character(len=128) :: version = 'version 1.0.16 2020/06/08'
   integer, parameter :: MAXGLOB=2
   character(len=4096), dimension(MAXGLOB) :: globs
   integer :: nglob, arg2_nc, arg2_min_nc, errors, iun, keyrec, ni,nj,nk, datev
@@ -374,7 +374,7 @@ program print_date_range
   call difdatr(stamp2,stamp1,diff)                           ! end - start in hours
 
   ntimes = 0
-  do while(diff >= 0)                                 ! while end date >= next date
+  do while(diff >= 0)                                 ! while end date >= next date ( stamp2 >= stamp1 )
     status = newdate(stamp1,p1,p2,-3)                 ! convert to printable YYYYMMDD and hhmmss00 integers
     ! create name for directory VALID_.....
     write(arg1,'(I8.8,A1,I6.6)')p1,'.',p2/100         ! YYYYMMDD.hhmmss
@@ -386,21 +386,24 @@ program print_date_range
       call incdatr(stamp3,stamp1,-file_span)          ! subtract file span from stamp1 (one day if not sub daily)
       status = newdate(stamp3,p3,p4,-3)               ! fix p3
     endif
-    ! find associated file name (round up to span seconds)
-    if(sub_daily) then
+    ! find associated file name
+    if(sub_daily) then                                   ! in sub daily mode, round up to span seconds
       hh = p2 / 1000000
       mm = mod(p2 / 10000 , 100)
       ss = mod(p2 / 100 , 100)
       ss = ss + mm * 60 + hh * 3600
       if(mod(ss, span) .ne. 0) ss = ss - mod(ss, span) + span ! top of the span interval
       status = newdate(stamp0,p1,0,3)                    ! convert from printable, start of day
-      call incdatr(stamp3,stamp0,ss / 3600.0_8)            ! add hours to go to top of interval
+      call incdatr(stamp3,stamp0,ss / 3600.0_8)          ! add hours to go to top of interval
       status = newdate(stamp3,p3,p2,-3)                  ! convert to printable
+    else                                                 ! in daily mode, make sure hhmmss = 0 for file target
+      if(.not. use_anal) status = newdate(stamp3,p3,0,3)
     endif
+    ! target name optimization
     if(targetstamp .ne. stamp3) then                     ! new target date, create directory
       dirp = transfer(trim(dirpath)//achar(0),dirp)      ! C null terminated string from Fortran string
       status = f_mkdir( dirp, mode )                     ! directory containing boundary files for this time interval
-      targetstamp = stamp3
+      if(.not. use_anal) targetstamp = stamp3            ! do not remember an analysis file
       targetdir = dirpath
     else                                                 ! target date already done, just create a soft link to its directory
       status = f_symlink( dirp, trim(dirpath)//achar(0) )
@@ -417,7 +420,7 @@ program print_date_range
 
     write(arg2,'(I8.8,A1,I8.8)')p3,'.',p2              ! YYYYMMDD.hhmmss00
     month_name = trim(nest_rept) // '/' // trim(set_name) // '_' // arg2(1:6)   ! month part can be a file or a directory
-    if(p2 == 0 .and. mod(p3,100) == 1) then            ! 1st day of the month, 00:00:00, file will be in previous month directory
+    if(p2 == 0 .and. mod(p3,100) == 1 .and. sub_daily) then    ! 1st day of the month, sub daily, 00Z will be in previous month directory
       status = newdate(stamp0,p3,p2,3)
       call incdatr(stamp3,stamp0,-1.0_8)               ! one hour before should be in previous month
       status = newdate(stamp3,p3,p2,-3)
@@ -524,7 +527,7 @@ program print_date_range
   write(0,*)'       arguments between [] are optional'
   write(0,*)'       only one of --nhours/--nseconds is necessary'
   write(0,*)'       for date parameters, the trailing 0s in the HHMMSS part may be omitted'
-  write(0,*)'       sub_dailey=h/m/s will cause span and tail to be set to appropriate values if not specified'
+  write(0,*)'       sub_daily=h/m/s will cause span and tail to be set to appropriate values if not specified'
   call f_exit(1)
   stop
 end program
