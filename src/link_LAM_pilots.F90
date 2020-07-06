@@ -160,7 +160,7 @@ program print_date_range
   integer :: cur_arg, nargs, arg_len, ntimes
   integer :: month_is_file = 0
   integer :: index_file_found = 0
-  character(len=128) :: version = 'version 1.0.16+ 2020/06/08'
+  character(len=128) :: version = 'version 1.0.17 2020/07/06'
   integer, parameter :: MAXGLOB=2
   character(len=4096), dimension(MAXGLOB) :: globs
   integer :: nglob, arg2_nc, arg2_min_nc, errors, iun, keyrec, ni,nj,nk, datev
@@ -462,8 +462,8 @@ program print_date_range
           if(verbose > 1) write(0,*)'INFO: looking for '//trim(oldpath)
           status = clib_glob(globs,nglob,trim(oldpath),MAXGLOB)            ! find file name match(es)
           if(status .ne. CLIB_OK .or. nglob > 1) then                      ! there must be one and only one match
-            write(0,*)'ERROR: '//trim(oldpath)//' is ambiguous or does not exist'
-	    write(0,*)'       date = '//arg2(1:4)//'/'//arg2(5:6)//'/'//arg2(7:8)//'-'//arg2(9:10)//':'//arg2(11:12)//':'//arg2(13:14)
+            write(0,10)' ERROR: '//trim(oldpath)//' matches',nglob,' name(s)'
+            write(0,10)'        date = '//arg2(1:4)//'/'//arg2(5:6)//'/'//arg2(7:8)//'-'//arg2(9:10)//':'//arg2(11:12)//':'//arg2(13:14)
             stop
           endif
           oldpath = globs(1)     ! use file name that matches pattern
@@ -489,6 +489,7 @@ program print_date_range
   if( trim(statusfile) .ne. '/dev/null' ) call set_status(statusfile,'status="SUCCESS"')
   call f_exit(0)
   stop
+10  format(A,I3,A)
 11  format(I8,1x,I6)
 12  format(I8,I6)
 777 continue
